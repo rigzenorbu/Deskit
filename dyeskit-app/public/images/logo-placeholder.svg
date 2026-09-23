@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="DYESKIT logo placeholder">
+  <!-- DUMMY LOGO — replace this file with your own artwork (keep the filename, or update
+       the paths in index.html and js/app.js). Suggested size: square, 512x512 or SVG. -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#17605b"/>
+      <stop offset="1" stop-color="#2a78d6"/>
+    </linearGradient>
+  </defs>
+  <rect width="96" height="96" rx="22" fill="url(#g)"/>
+  <!-- mountain + sun: a placeholder mark, not a brand -->
+  <circle cx="66" cy="30" r="9" fill="#fcfcfb" opacity=".9"/>
+  <path d="M14 70 L34 40 L48 60 L60 46 L82 70 Z" fill="#fcfcfb" opacity=".92"/>
+  <path d="M14 70 H82" stroke="#fcfcfb" stroke-width="3" stroke-linecap="round" opacity=".6"/>
+  <text x="48" y="88" font-family="system-ui, sans-serif" font-size="9" fill="#fcfcfb" text-anchor="middle" opacity=".75">PLACEHOLDER</text>
+</svg>

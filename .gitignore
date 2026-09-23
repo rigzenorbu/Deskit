@@ -1,0 +1,4 @@
+.DS_Store
+dyeskit-app/data/
+*.log
+node_modules/
