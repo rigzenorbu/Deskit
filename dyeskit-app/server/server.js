@@ -10,6 +10,8 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const Q = require('./questionnaire');
+const { buildInsights } = require('./insights');
+const Assistant = require('./assistant');
 const S = require('./scoring');
 const D = require('./db');
 const { db } = D;
@@ -17,6 +19,14 @@ const { db } = D;
 const PORT = Number(process.env.PORT || 4173);
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const SESSION_DAYS = 7;
+
+const SYSTEM_RULES = [
+  'The assistant never produces a number itself — every figure comes from the scoring engine.',
+  'Each answer shows the exact tables it was built from.',
+  'If the data does not cover the question, the answer says so instead of estimating.',
+  'No household-level or personal data is available to it.',
+  'Villages below the minimum sample are labelled as not yet reliable.',
+];
 
 /* ------------------------------------------------------------ permissions */
 const ROLE_RIGHTS = {
@@ -521,6 +531,29 @@ const server = http.createServer(async (req, res) => {
           body.households ?? cur.households, body.altitude_m ?? cur.altitude_m, id);
       D.audit(user, 'update_village', 'village', id, body);
       return json(res, 200, { ok: true });
+    }
+
+    if (pathname === '/api/insights') {
+      const scope = R.read === 'assigned' ? assignedVillageIds(user) : null;
+      const only = query.village_id ? [Number(query.village_id)] : null;
+      const ids = only ? (scope ? only.filter(v => scope.includes(v)) : only) : scope;
+      return json(res, 200, buildInsights(ids));
+    }
+
+    if (pathname === '/api/assistant' && req.method === 'POST') {
+      const scope = R.read === 'assigned' ? assignedVillageIds(user) : null;
+      const answer = await Assistant.ask(body.question, { scope, pii: false }, body.history);
+      D.audit(user, 'assistant_question', 'assistant', null,
+        { question: String(body.question || '').slice(0, 300), planner: answer.planner, tools: answer.evidence.map(e => e.tool) });
+      return json(res, 200, answer);
+    }
+
+    if (pathname === '/api/assistant/capabilities') {
+      return json(res, 200, {
+        tools: Assistant.catalogue(), model: Assistant.MODEL,
+        llm_enabled: !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN),
+        rules: SYSTEM_RULES,
+      });
     }
 
     if (pathname === '/api/audit') {

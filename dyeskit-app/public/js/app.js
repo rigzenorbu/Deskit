@@ -128,6 +128,7 @@ const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: '◎', roles: ['admin', 'supervisor', 'analyst', 'viewer', 'collector'] },
   { id: 'villages', label: 'Villages', icon: '⌂', roles: ['admin', 'supervisor', 'analyst', 'viewer', 'collector'] },
   { id: 'collect', label: 'Collect data', icon: '✎', roles: ['admin', 'supervisor', 'collector'] },
+  { id: 'insights', label: 'Insights & assistant', icon: '✦', roles: ['admin', 'supervisor', 'analyst', 'viewer', 'collector'] },
   { id: 'data', label: 'Submissions', icon: '≣', roles: ['admin', 'supervisor', 'analyst', 'collector'] },
   { id: 'export', label: 'Export', icon: '↓', roles: ['admin', 'supervisor', 'analyst'] },
   { id: 'admin', label: 'Administration', icon: '⚙', roles: ['admin'] },
@@ -173,7 +174,7 @@ function renderView() {
   const main = qs('#main');
   main.innerHTML = '<div class="spinner"></div>';
   ({
-    dashboard: viewDashboard, villages: viewVillages, collect: viewCollect,
+    dashboard: viewDashboard, villages: viewVillages, collect: viewCollect, insights: viewInsights,
     data: viewData, export: viewExport, admin: viewAdmin, method: viewMethod,
   }[state.view] || viewDashboard)(main);
 }
@@ -874,6 +875,117 @@ async function viewAdmin(main) {
     await api(`/api/submissions/${b.dataset.restore}/restore`, { method: 'POST' });
     toast('Restored'); renderView();
   });
+}
+
+/* ---------------------------------------------------------------- insights */
+const SEV_CLASS = { critical: 'critical', serious: 'serious', watch: 'warning', good: 'good' };
+
+async function viewInsights(main) {
+  const [data, caps] = await Promise.all([
+    api('/api/insights' + (state.filters.village_id ? '?village_id=' + state.filters.village_id : '')),
+    api('/api/assistant/capabilities'),
+  ]);
+
+  main.innerHTML = '';
+  main.appendChild(el(`<div class="page-head"><div><h1>Insights &amp; assistant</h1>
+    <p>Two layers. The <b>rules engine</b> applies fixed thresholds to the data and never guesses.
+    The <b>assistant</b> answers questions in plain language, but may only report what the rules engine
+    and the scoring engine compute — it cannot produce a number of its own.</p></div></div>`));
+
+  /* ---- ask box ---- */
+  const ask = el(`<div class="card"><header><h3>Ask about the data</h3>
+      <span class="sub">${caps.llm_enabled ? 'language model: ' + esc(caps.model) : 'rule-based planner (no API key set)'}</span></header>
+    <div class="inline" style="gap:8px">
+      <input data-q placeholder="e.g. Which villages in Kargil have the lowest financial wellbeing?" style="flex:1 1 380px">
+      <button class="btn" data-send>Ask</button></div>
+    <div class="inline" style="margin-top:8px;gap:6px">
+      ${['Where is water stress worst?', 'What is flagged in Drass?', 'Compare Stok and Drass',
+         'Which villages could learn from each other?', 'What does band 4 mean?']
+        .map(x => `<button class="opt" data-eg="${esc(x)}">${esc(x)}</button>`).join('')}
+    </div>
+    <div data-answer style="margin-top:12px"></div>
+    <details style="margin-top:10px"><summary class="small muted">How this answer is kept accurate</summary>
+      <ul class="small muted">${caps.rules.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+      <p class="small muted">Available lookups: ${caps.tools.map(t => esc(t.name)).join(', ')}.</p>
+    </details></div>`);
+  main.appendChild(ask);
+
+  const answerBox = qs('[data-answer]', ask);
+  async function send(question) {
+    qs('[data-q]', ask).value = question;
+    answerBox.innerHTML = '<div class="spinner"></div>';
+    try {
+      const r = await api('/api/assistant', { method: 'POST', body: { question } });
+      answerBox.innerHTML = `<div class="notice" style="font-size:.95rem">${esc(r.answer)}</div>
+        ${r.note ? `<p class="small muted" style="margin-top:6px">${esc(r.note)}</p>` : ''}
+        <p class="small muted" style="margin-top:8px">Evidence — every number above comes from these tables:</p>` +
+        r.evidence.map(e => `<div class="card" style="margin-top:8px;box-shadow:none">
+          <header><h3 style="font-size:.85rem">${esc(e.tool)}(${esc(JSON.stringify(e.args))})</h3>
+            <span class="sub">${esc(e.result.summary || '')}</span></header>
+          ${e.result.rows && e.result.rows.length ? `<div class="table-wrap"><table>
+            <thead><tr>${(e.result.columns || []).map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
+            <tbody>${e.result.rows.slice(0, 15).map(row => `<tr>${row.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody>
+          </table></div>` : '<p class="small muted">No rows returned.</p>'}</div>`).join('');
+    } catch (err) { answerBox.innerHTML = `<div class="notice error">${esc(err.message)}</div>`; }
+  }
+  qs('[data-send]', ask).onclick = () => send(qs('[data-q]', ask).value.trim());
+  qs('[data-q]', ask).addEventListener('keydown', e => { if (e.key === 'Enter') send(e.target.value.trim()); });
+  qsa('[data-eg]', ask).forEach(b => b.onclick = () => send(b.dataset.eg));
+
+  /* ---- priority actions ---- */
+  const actions = el(`<div class="card" style="margin-top:14px"><header><h3>What needs attention</h3>
+    <span class="sub">households affected, counted by fixed rules</span></header>
+    ${data.actions.length ? `<div class="table-wrap"><table>
+      <thead><tr><th>Problem</th><th>Dimension</th><th class="num">Households</th><th class="num">Share</th><th>Worst villages</th><th>Level</th></tr></thead>
+      <tbody>${data.actions.map(a2 => `<tr>
+        <td><b>${esc(a2.name)}</b><div class="small muted">${esc(a2.action)}</div></td>
+        <td>${esc(dimName(a2.dim))}</td>
+        <td class="num">${a2.households} of ${a2.of}</td>
+        <td class="num">${(a2.share * 100).toFixed(0)}%</td>
+        <td class="small">${esc(a2.villages.join(' · '))}</td>
+        <td><span class="status ${SEV_CLASS[a2.level] || 'warning'}"><span class="dot"></span>${esc(a2.level)}</span></td>
+      </tr>`).join('')}</tbody></table></div>`
+      : '<p class="muted small">Nothing crosses the thresholds in this view.</p>'}</div>`);
+  main.appendChild(actions);
+
+  /* ---- matches ---- */
+  const matches = el(`<div class="card" style="margin-top:14px"><header><h3>Villages that could learn from each other</h3>
+    <span class="sub">paired where the gap is 20 points or more</span></header>
+    ${data.matches.length ? `<div class="table-wrap"><table>
+      <thead><tr><th>Problem</th><th>Village needing help</th><th>Village to learn from</th><th class="num">Gap</th></tr></thead>
+      <tbody>${data.matches.map(m => `<tr>
+        <td>${esc(m.name)}</td>
+        <td><b>${esc(m.needs.village)}</b> <span class="muted">${(m.needs.share * 100).toFixed(0)}% of ${m.needs.of}</span></td>
+        <td><b>${esc(m.has.village)}</b> <span class="muted">${(m.has.share * 100).toFixed(0)}% of ${m.has.of}</span></td>
+        <td class="num">${(m.gap * 100).toFixed(0)} pts</td></tr>`).join('')}</tbody></table></div>`
+      : '<p class="muted small">No pairing meets the threshold.</p>'}</div>`);
+  main.appendChild(matches);
+
+  /* ---- per-village ---- */
+  const per = el(`<div class="card" style="margin-top:14px"><header><h3>Village by village</h3>
+    <span class="sub">flags and showcases per village</span></header><div class="stack"></div></div>`);
+  const stack = qs('.stack', per);
+  data.villages.forEach(v => {
+    const flagCount = v.flags.length, showCount = v.showcases.length;
+    const d = el(`<details><summary><b>${esc(v.village)}</b>
+      <span class="muted small"> — ${v.pct === null ? 'no score' : v.pct.toFixed(1) + '%'} ·
+      ${flagCount} flag${flagCount === 1 ? '' : 's'} · ${showCount} showcase${showCount === 1 ? '' : 's'} ·
+      ${v.n} surveys${v.coverage && !v.coverage.sufficient ? ' · BELOW MINIMUM SAMPLE' : ''}</span></summary>
+      <div class="table-wrap" style="margin-top:8px"><table><tbody>
+      ${v.flags.map(f => `<tr><td style="width:90px"><span class="status ${SEV_CLASS[f.level] || 'warning'}"><span class="dot"></span>flag</span></td>
+        <td><b>${esc(f.name)}</b><div class="small muted">${esc(f.why)}${f.action ? ' ' + esc(f.action) : ''}</div></td></tr>`).join('')}
+      ${v.showcases.map(sc => `<tr><td><span class="status good"><span class="dot"></span>showcase</span></td>
+        <td><b>${esc(sc.name)}</b><div class="small muted">${esc(sc.why)}</div></td></tr>`).join('')}
+      </tbody></table></div></details>`);
+    stack.appendChild(d);
+  });
+  main.appendChild(per);
+
+  main.appendChild(el(`<p class="small muted" style="margin-top:12px">
+    Thresholds in force: dimension flagged below ${(data.thresholds.flag_dimension * 100).toFixed(0)}%;
+    signal levels at ${data.thresholds.signal_bands.map(b => `${b.level} ≥ ${(b.min_share * 100).toFixed(0)}%`).join(', ')};
+    showcase at ${(data.thresholds.showcase_dimension * 100).toFixed(0)}%; pairing gap ${(data.thresholds.match_gap * 100).toFixed(0)} points;
+    village reported at ${esc(data.thresholds.min_village_sample)}. Scoring ${esc(data.scoring_version)}.</p>`));
 }
 
 /* ------------------------------------------------------------------ method */

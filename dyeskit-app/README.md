@@ -70,8 +70,34 @@ priorities, and field notes you can add.
 **Submissions** — searchable table, full record view with the indicator-by-indicator derivation,
 change history, approve / send back, and delete with a reason.
 
+**Insights (rules engine)** — `server/insights.js` turns the Village-Level AI Instructions into code:
+28 household-level **signals** (unsafe water, no bank account, income in one season, cut off from care
+in winter, …), each counted per village and graded by the share of households affected. It produces
+**flags** (below threshold here), **showcases** (notably good here), **matches** (a village with a
+problem paired with one without it) and **counts** (how many households, of how many surveyed).
+No model, no randomness — the same data always gives the same output.
+
+**Assistant** — `server/assistant.js` answers questions in plain language. Its design rule is that
+**the model never produces a number**: it may only choose which of 11 read-only lookups to run, and
+then phrase what they returned. Every answer displays the tables it was built from. With
+`ANTHROPIC_API_KEY` set it uses Claude (default `claude-opus-5`) to interpret free-form questions;
+without a key a keyword planner handles the common ones. Both run the same lookups, so the numbers
+are identical either way.
+
 **Export** — one row per household (opens in Excel or SPSS), one row per answer, and a codebook.
 Downloads honour the current filters; identifiers are stripped for analysts; every download is logged.
+
+## Turning on the language model
+
+```bash
+npm install                        # includes @anthropic-ai/sdk
+export ANTHROPIC_API_KEY=sk-ant-…  # from console.anthropic.com
+npm start
+```
+
+Without a key the app runs normally and the assistant falls back to its keyword planner; the page
+says which planner answered. The model sees only village-level aggregates and anonymised notes —
+never household records, names or phone numbers.
 
 ## Project layout
 
@@ -81,12 +107,14 @@ dyeskit-app/
 │   ├── questionnaire.js   the instrument: sections, items, options, score points
 │   ├── scoring.js         indicators, dimensions, index, bands, aggregation
 │   ├── db.js              schema, storage helpers, demo seed
+│   ├── insights.js        rules engine: signals, flags, showcases, matches
+│   ├── assistant.js       question answering; tools + the two planners
 │   └── server.js          API, permissions, filters, CSV export
 ├── public/
 │   ├── index.html
 │   ├── css/theme.css      wellness theme (light + dark)
 │   ├── js/charts.js       SVG charts: radar, bars, line, map
-│   ├── js/app.js          views: login, dashboard, villages, survey, data, export, admin
+│   ├── js/app.js          views: login, dashboard, villages, survey, insights, data, export, admin
 │   └── images/            👉 logo-placeholder.svg — replace with your artwork
 └── data/                  SQLite database (created on first run, git-ignored)
 ```
@@ -130,7 +158,8 @@ deployment (see Sections 7 and 12 of the plan document):
 2. Move to hosted PostgreSQL in an India region; keep nightly backups off-box.
 3. Add two-factor authentication for admin and supervisor accounts.
 4. Build the offline Android app against this same API (the survey screen here is the reference).
-5. Add the AI assistant on top of the scores and field notes, with citations and no personal data.
+5. Set an API key so the assistant handles free-form questions, and review its answers against the
+   evidence tables for a week before letting anyone else use it.
 6. Field-test the instrument on 10–15 households, then run the reliability checks before rollout.
 
 Scoring thresholds follow Indian references — ICMR / WHO Asia-Pacific BMI cut-offs, IPHS norms for

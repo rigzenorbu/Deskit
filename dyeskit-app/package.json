@@ -14,5 +14,8 @@
   },
   "devDependencies": {
     "docx": "^9.7.2"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "^0.128.0"
   }
 }
