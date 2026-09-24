@@ -125,6 +125,17 @@ Put your file at `public/images/logo-placeholder.svg` (same name, any square SVG
 PNG, update the two `<img src>` references in `public/js/app.js` and the `<link rel="icon">` in
 `public/index.html`). Nothing else changes.
 
+## Checking the numbers
+
+```bash
+npm run verify
+```
+
+Recomputes every published figure a second way — signal counts with SQL straight off the answers
+table, dimension and household scores as plain arithmetic — and fails if the two paths disagree.
+It ends by printing one household in full, indicator by indicator, so you can check it on paper.
+Current state: 6,309 checks, all agreeing.
+
 ## Regenerating the scoring methodology document
 
 `../DYESKIT_Scoring_Methodology.docx` (and `.html`, printed to PDF) is generated **from this code**,

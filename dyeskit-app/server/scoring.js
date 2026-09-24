@@ -252,9 +252,12 @@ function scoreSubmission(answers) {
 
   const validDims = DIMENSIONS.filter(d => dims[d.id].valid);
   const valid = validDims.length >= 5;
-  const iwb = validDims.length ? round(validDims.reduce((s, d) => s + dims[d.id].score, 0) / validDims.length) : null;
-  const pct = iwb === null ? null : round(iwb * 100, 1);
-  const band = bandFor(pct);
+  // Band from the UNROUNDED mean; rounding is for display only. Rounding first would
+  // promote a household at 70.9996% into the next band.
+  const iwbRaw = validDims.length ? validDims.reduce((s, d) => s + dims[d.id].score, 0) / validDims.length : null;
+  const iwb = iwbRaw === null ? null : round(iwbRaw);
+  const pct = iwbRaw === null ? null : round(iwbRaw * 100, 1);
+  const band = bandFor(iwbRaw === null ? null : iwbRaw * 100);
 
   return {
     scoring_version: SCORING_VERSION,
@@ -278,9 +281,10 @@ function aggregate(scored, opts = {}) {
     dimMeans[d.id] = vals.length ? round(vals.reduce((s, x) => s + x, 0) / vals.length) : null;
   }
   const iwbVals = rows.map(r => r.iwb);
-  const vwbi = iwbVals.length ? round(iwbVals.reduce((s, x) => s + x, 0) / iwbVals.length) : null;
-  const pct = vwbi === null ? null : round(vwbi * 100, 1);
-  const band = bandFor(pct);
+  const vwbiRaw = iwbVals.length ? iwbVals.reduce((s, x) => s + x, 0) / iwbVals.length : null;
+  const vwbi = vwbiRaw === null ? null : round(vwbiRaw);
+  const pct = vwbiRaw === null ? null : round(vwbiRaw * 100, 1);
+  const band = bandFor(vwbiRaw === null ? null : vwbiRaw * 100);
 
   const bandCounts = BANDS.map(b => ({ band: b.band, label: b.label, count: rows.filter(r => r.band === b.band).length }));
   const flags = DIMENSIONS

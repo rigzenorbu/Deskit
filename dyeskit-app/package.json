@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node server/server.js",
     "reset": "rm -f data/dyeskit.db data/dyeskit.db-wal data/dyeskit.db-shm && node server/server.js",
-    "docs": "node tools/build-scoring-doc.js"
+    "docs": "node tools/build-scoring-doc.js",
+    "verify": "node tools/verify.js"
   },
   "devDependencies": {
     "docx": "^9.7.2"
