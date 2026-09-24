@@ -2,11 +2,17 @@
   "name": "dyeskit-platform",
   "version": "0.1.0",
   "private": true,
-  "description": "Project DYESKIT — village well-being data collection, scoring and insights (Ladakh)",
+  "description": "Project DYESKIT \u2014 village well-being data collection, scoring and insights (Ladakh)",
   "type": "commonjs",
-  "engines": { "node": ">=22.5" },
+  "engines": {
+    "node": ">=22.5"
+  },
   "scripts": {
     "start": "node server/server.js",
-    "reset": "rm -f data/dyeskit.db data/dyeskit.db-wal data/dyeskit.db-shm && node server/server.js"
+    "reset": "rm -f data/dyeskit.db data/dyeskit.db-wal data/dyeskit.db-shm && node server/server.js",
+    "docs": "node tools/build-scoring-doc.js"
+  },
+  "devDependencies": {
+    "docx": "^9.7.2"
   }
 }

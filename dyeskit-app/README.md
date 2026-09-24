@@ -97,6 +97,19 @@ Put your file at `public/images/logo-placeholder.svg` (same name, any square SVG
 PNG, update the two `<img src>` references in `public/js/app.js` and the `<link rel="icon">` in
 `public/index.html`). Nothing else changes.
 
+## Regenerating the scoring methodology document
+
+`../DYESKIT_Scoring_Methodology.docx` (and `.html`, printed to PDF) is generated **from this code**,
+so it always matches what the app computes:
+
+```bash
+npm install          # installs docx, used only by this tool
+npm run docs
+```
+
+It lists every indicator, every answer option and the value it carries, the formulas, a worked
+example scored live at build time, and the comparison with the original 1 / 0.5 / 0 model.
+
 ## Changing questions or scoring
 
 - **Questions** live only in `server/questionnaire.js`. Add an item to a section, give it a type,
@@ -104,6 +117,7 @@ PNG, update the two `<img src>` references in `public/js/app.js` and the `<link 
   codebook all follow automatically.
 - **Scoring** lives only in `server/scoring.js`. Indicators list which items they read; rules that
   combine items (BMI, healthcare access, water reliability, counts) are named functions.
+- After changing either, run `npm run docs` to refresh the methodology document.
 - After changing scoring, run **Administration → Recalculate all scores**: raw answers are re-scored
   and the new scoring version is stamped on each record.
 
