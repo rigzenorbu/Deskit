@@ -68,8 +68,8 @@ function legend(items) {
 
 /* ------------------------------------------------------------ radar (7 dimensions) */
 export function radarChart(container, { series, axes, max = 1 }) {
-  const size = 320, cx = size / 2, cy = size / 2 + 6, r = 108;
-  const svg = svgEl('svg', { class: 'chart', viewBox: `0 0 ${size} ${size + 22}`, role: 'img' });
+  const size = 380, cx = size / 2, cy = size / 2 + 4, r = 104;
+  const svg = svgEl('svg', { class: 'chart', viewBox: `0 0 ${size} ${size + 16}`, role: 'img' });
   const n = axes.length;
   const pt = (i, val) => {
     const ang = (Math.PI * 2 * i) / n - Math.PI / 2;
@@ -84,7 +84,7 @@ export function radarChart(container, { series, axes, max = 1 }) {
   axes.forEach((a, i) => {
     const [x, y] = pt(i, max);
     svg.appendChild(svgEl('line', { x1: cx, y1: cy, x2: x, y2: y, class: 'gridline' }));
-    const [lx, ly] = pt(i, max * 1.22);
+    const [lx, ly] = pt(i, max * 1.26);
     const t = svgEl('text', { x: lx, y: ly, class: 'axis-label', 'text-anchor': lx > cx + 4 ? 'start' : lx < cx - 4 ? 'end' : 'middle', 'dominant-baseline': 'middle' });
     t.textContent = a.label;
     svg.appendChild(t);

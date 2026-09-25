@@ -138,7 +138,9 @@ const NAV = [
 function renderShell() {
   root.innerHTML = '';
   const nav = NAV.filter(n => n.roles.includes(state.me.role));
+  const primary = nav.slice(0, 4);
   const shell = el(`<div class="app">
+    <div class="scrim" data-scrim></div>
     <aside class="sidebar">
       <div class="brand"><img src="images/logo-placeholder.svg" alt="DYESKIT logo placeholder">
         <div class="brand-text"><strong>DYESKIT</strong><span>Village Well-Being</span></div></div>
@@ -152,13 +154,29 @@ function renderShell() {
         <div class="muted">Questionnaire ${esc(state.meta.questionnaire.version)} · Scoring ${esc(state.meta.scoring_version)}</div>
       </div>
     </aside>
-    <main class="main" id="main"></main>
+    <div>
+      <header class="topbar">
+        <button class="icon-btn" data-menu aria-label="Menu">☰</button>
+        <img src="images/logo-placeholder.svg" alt="">
+        <span class="title" data-title>Dashboard</span>
+        <button class="icon-btn" data-theme-toggle-m aria-label="Switch theme">◐</button>
+      </header>
+      <main class="main" id="main"></main>
+    </div>
+    <nav class="bottomnav">
+      ${primary.map(n => `<button data-view="${n.id}"><span class="ico">${n.icon}</span>${esc(n.label.split(' ')[0])}</button>`).join('')}
+      <button data-menu><span class="ico">☰</span>More</button>
+    </nav>
   </div>`);
   root.appendChild(shell);
+  const closeDrawer = () => shell.classList.remove('drawer-open');
+  qsa('[data-menu]', shell).forEach(b => b.onclick = () => shell.classList.toggle('drawer-open'));
+  qs('[data-scrim]', shell).onclick = closeDrawer;
   qsa('[data-view]', shell).forEach(b => {
-    b.onclick = () => { state.view = b.dataset.view; renderView(); };
+    b.onclick = () => { state.view = b.dataset.view; closeDrawer(); renderView(); };
     if (b.dataset.view === state.view) b.setAttribute('aria-current', 'page');
   });
+  qs('[data-theme-toggle-m]', shell).onclick = () => qs('[data-theme-toggle]', shell).click();
   qs('[data-logout]', shell).onclick = async () => { await api('/api/logout', { method: 'POST' }); state.me = null; renderLogin('Signed out.'); };
   qs('[data-theme-toggle]', shell).onclick = () => {
     const cur = document.documentElement.getAttribute('data-theme');
@@ -170,7 +188,14 @@ function renderShell() {
 }
 
 function renderView() {
-  qsa('[data-view]').forEach(b => b.toggleAttribute('aria-current', b.dataset.view === state.view) || (b.dataset.view === state.view ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current')));
+  qsa('[data-view]').forEach(b => {
+    if (b.dataset.view === state.view) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  });
+  const current = NAV.find(n => n.id === state.view);
+  const titleEl = qs('[data-title]');
+  if (titleEl && current) titleEl.textContent = current.label;
+  window.scrollTo(0, 0);
   const main = qs('#main');
   main.innerHTML = '<div class="spinner"></div>';
   ({
@@ -213,7 +238,20 @@ function filterBar(onChange, opts = {}) {
     Object.keys(state.filters).forEach(k => state.filters[k] = '');
     onChange();
   };
-  return bar;
+
+  // On phones the filter block is hidden behind a button so it does not fill the screen.
+  const active = Object.values(state.filters).filter(v => v !== '' && v !== null && v !== undefined).length;
+  const wrap = document.createElement('div');
+  const toggle = el(`<button class="filters-toggle" type="button">
+    <span>Filters${active ? '' : ' — showing everything'}</span>
+    <span class="inline">${active ? `<span class="count">${active} set</span>` : ''}<span>▾</span></span></button>`);
+  toggle.onclick = () => {
+    const open = bar.classList.toggle('show');
+    toggle.querySelector('span:last-child > span:last-child').textContent = open ? '▴' : '▾';
+  };
+  wrap.appendChild(toggle);
+  wrap.appendChild(bar);
+  return wrap;
 }
 
 const activeFilterNote = () => {
@@ -364,15 +402,16 @@ async function viewVillages(main) {
   main.appendChild(filterBar(() => renderView()));
 
   const table = el(`<div class="card"><div class="table-wrap"><table>
-    <thead><tr><th>Village</th><th>District</th><th class="num">Surveys</th><th class="num">Coverage</th>
-      <th class="num">VWBI</th><th>Band</th><th>Flags</th></tr></thead>
+    <thead><tr><th>Village</th><th class="hide-sm">District</th><th class="num hide-sm">Surveys</th><th class="num hide-sm">Coverage</th>
+      <th class="num">VWBI</th><th>Band</th><th class="hide-sm">Flags</th></tr></thead>
     <tbody>${data.villages.map(v => `<tr data-v="${v.village_id}" style="cursor:pointer">
-      <td><b>${esc(v.village)}</b></td><td>${v.district === 'leh' ? 'Leh' : 'Kargil'}</td>
-      <td class="num">${v.n}</td>
-      <td class="num">${v.coverage ? v.coverage.percent + '%' : '—'} ${v.coverage && !v.coverage.sufficient ? '<span class="status serious"><span class="dot"></span></span>' : ''}</td>
+      <td><b>${esc(v.village)}</b><div class="show-sm small muted">${v.district === 'leh' ? 'Leh' : 'Kargil'} · ${v.n} surveys</div></td>
+      <td class="hide-sm">${v.district === 'leh' ? 'Leh' : 'Kargil'}</td>
+      <td class="num hide-sm">${v.n}</td>
+      <td class="num hide-sm">${v.coverage ? v.coverage.percent + '%' : '—'} ${v.coverage && !v.coverage.sufficient ? '<span class="status serious"><span class="dot"></span></span>' : ''}</td>
       <td class="num">${v.pct === null ? '—' : v.pct.toFixed(1) + '%'}</td>
       <td><span class="band-pill">${v.band || '—'} · ${esc((v.band_label || '').split(' ')[0])}</span></td>
-      <td>${v.flags.length ? v.flags.map(f => `<span class="status ${f.severity}"><span class="dot"></span>${esc(f.name)}</span>`).join(' ') : '<span class="muted small">none</span>'}</td>
+      <td class="hide-sm">${v.flags.length ? v.flags.map(f => `<span class="status ${f.severity}"><span class="dot"></span>${esc(f.name)}</span>`).join(' ') : '<span class="muted small">none</span>'}</td>
     </tr>`).join('')}</tbody></table></div></div>`);
   main.appendChild(table);
   qsa('[data-v]', table).forEach(tr => tr.onclick = () => villageProfile(Number(tr.dataset.v)));
@@ -465,9 +504,11 @@ async function viewCollect(main) {
     <button class="btn" data-new>+ New household survey</button></div>`));
 
   main.appendChild(el(`<div class="card"><header><h3>Your drafts</h3><span class="sub">not yet submitted</span></header>
-    ${mine.rows.length ? `<div class="table-wrap"><table><thead><tr><th>Household</th><th>Village</th><th>Started</th><th></th></tr></thead>
-      <tbody>${mine.rows.map(r => `<tr><td>${esc(r.household_code)}</td><td>${esc(r.village)}</td><td>${fmtDate(r.submitted_at)}</td>
-        <td><button class="btn sm secondary" data-open="${r.id}">Continue</button></td></tr>`).join('')}</tbody></table></div>`
+    ${mine.rows.length ? `<div class="table-wrap"><table><thead><tr><th>Household</th><th class="hide-sm">Village</th><th class="hide-sm">Started</th><th></th></tr></thead>
+      <tbody>${mine.rows.map(r => `<tr>
+        <td>${esc(r.household_code)}<div class="show-sm small muted">${esc(r.village)} · ${fmtDate(r.submitted_at)}</div></td>
+        <td class="hide-sm">${esc(r.village)}</td><td class="hide-sm">${fmtDate(r.submitted_at)}</td>
+        <td><button class="btn sm secondary" data-open="${r.id}">Open</button></td></tr>`).join('')}</tbody></table></div>`
       : '<p class="muted small">No drafts. Start a new survey when you are with a household.</p>'}</div>`));
   qsa('[data-open]', main).forEach(b => b.onclick = () => openSurvey(Number(b.dataset.open)));
 
@@ -651,13 +692,14 @@ async function viewData(main) {
   main.appendChild(filterBar(() => renderView(), { status: true, search: true }));
 
   main.appendChild(el(`<div class="card"><div class="table-wrap"><table>
-    <thead><tr><th>Household</th><th>Village</th><th>Date</th><th>Status</th><th class="num">Score</th><th>Band</th><th class="num">Minutes</th><th></th></tr></thead>
+    <thead><tr><th>Household</th><th class="hide-sm">Village</th><th class="hide-sm">Date</th><th>Status</th><th class="num">Score</th><th class="hide-sm">Band</th><th class="num hide-sm">Minutes</th><th></th></tr></thead>
     <tbody>${data.rows.map(r => `<tr>
-      <td>${esc(r.household_code)}</td><td>${esc(r.village)}</td><td>${fmtDate(r.submitted_at)}</td>
+      <td>${esc(r.household_code)}<div class="show-sm small muted">${esc(r.village)} · ${fmtDate(r.submitted_at)}</div></td>
+      <td class="hide-sm">${esc(r.village)}</td><td class="hide-sm">${fmtDate(r.submitted_at)}</td>
       <td>${esc(r.status)}${r.valid ? '' : ' <span class="status serious"><span class="dot"></span>low validity</span>'}</td>
       <td class="num">${r.pct === null ? '—' : r.pct.toFixed(1) + '%'}</td>
-      <td>${r.band ? `<span class="band-pill">${r.band}</span>` : '—'}</td>
-      <td class="num">${r.duration_min ?? '—'}</td>
+      <td class="hide-sm">${r.band ? `<span class="band-pill">${r.band}</span>` : '—'}</td>
+      <td class="num hide-sm">${r.duration_min ?? '—'}</td>
       <td><button class="btn sm secondary" data-detail="${r.id}">Open</button></td></tr>`).join('')}</tbody>
   </table></div><p class="small muted" style="margin-top:8px">${data.rows.length} records shown.</p></div>`));
   qsa('[data-detail]', main).forEach(b => b.onclick = () => submissionDetail(Number(b.dataset.detail)));
@@ -936,13 +978,13 @@ async function viewInsights(main) {
   const actions = el(`<div class="card" style="margin-top:14px"><header><h3>What needs attention</h3>
     <span class="sub">households affected, counted by fixed rules</span></header>
     ${data.actions.length ? `<div class="table-wrap"><table>
-      <thead><tr><th>Problem</th><th>Dimension</th><th class="num">Households</th><th class="num">Share</th><th>Worst villages</th><th>Level</th></tr></thead>
+      <thead><tr><th>Problem</th><th class="hide-sm">Dimension</th><th class="num">Households</th><th class="num hide-sm">Share</th><th class="hide-sm">Worst villages</th><th>Level</th></tr></thead>
       <tbody>${data.actions.map(a2 => `<tr>
         <td><b>${esc(a2.name)}</b><div class="small muted">${esc(a2.action)}</div></td>
-        <td>${esc(dimName(a2.dim))}</td>
-        <td class="num">${a2.households} of ${a2.of}</td>
-        <td class="num">${(a2.share * 100).toFixed(0)}%</td>
-        <td class="small">${esc(a2.villages.join(' · '))}</td>
+        <td class="hide-sm">${esc(dimName(a2.dim))}</td>
+        <td class="num">${a2.households} of ${a2.of}<span class="show-sm"> (${(a2.share * 100).toFixed(0)}%)</span></td>
+        <td class="num hide-sm">${(a2.share * 100).toFixed(0)}%</td>
+        <td class="small hide-sm">${esc(a2.villages.join(' · '))}</td>
         <td><span class="status ${SEV_CLASS[a2.level] || 'warning'}"><span class="dot"></span>${esc(a2.level)}</span></td>
       </tr>`).join('')}</tbody></table></div>`
       : '<p class="muted small">Nothing crosses the thresholds in this view.</p>'}</div>`);
