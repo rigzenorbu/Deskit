@@ -1,5 +1,5 @@
 /* DYESKIT front-end — plain ES modules, no framework. */
-import { radarChart, barsH, barsV, lineChart, villageMap, fmtPct, esc } from './charts.js';
+import { radarChart, barsH, barsV, lineChart, villageMap, ringGauge, fmtPct, esc } from './charts.js';
 
 const root = document.getElementById('root');
 const state = {
@@ -282,17 +282,30 @@ async function viewDashboard(main) {
   main.appendChild(filterBar(() => renderView()));
 
   const flagCount = o.flags.length;
-  main.appendChild(el(`<div class="grid cols-4">
-    <div class="card tile"><div class="label">Well-being index</div>
-      <div class="value">${o.pct === null ? '—' : o.pct.toFixed(1) + '%'}</div>
-      <div class="note"><span class="band-pill">Band ${o.band || '—'} · ${esc(o.band_label)}</span></div></div>
-    <div class="card tile"><div class="label">Households surveyed</div>
+  const best = data.villages[0], worst = data.villages[data.villages.length - 1];
+  const hero = el(`<div class="hero">
+    <div data-gauge></div>
+    <div class="hero-text">
+      <div class="hero-title">Village well-being index</div>
+      <div class="hero-band">Band ${o.band || '—'} · ${esc(o.band_label)}</div>
+      <div class="hero-note">${o.n} households across ${data.villages.length} village${data.villages.length === 1 ? '' : 's'}${o.coverage ? `, ${o.coverage.percent}% of ${o.coverage.households} on record` : ''}.</div>
+      <div class="hero-chips">
+        ${best ? `<span class="chip">Highest · ${esc(best.village)} ${best.pct ? best.pct.toFixed(1) + '%' : ''}</span>` : ''}
+        ${worst && worst !== best ? `<span class="chip">Lowest · ${esc(worst.village)} ${worst.pct ? worst.pct.toFixed(1) + '%' : ''}</span>` : ''}
+        <span class="chip">${flagCount ? flagCount + ' dimension' + (flagCount === 1 ? '' : 's') + ' flagged' : 'No dimension flagged'}</span>
+      </div>
+    </div></div>`);
+  main.appendChild(hero);
+  ringGauge(qs('[data-gauge]', hero), { value: o.vwbi, caption: 'of 100%' });
+
+  main.appendChild(el(`<div class="grid cols-3" style="margin-top:14px">
+    <div class="card tile accent"><div class="label">Households surveyed</div>
       <div class="value">${o.n}</div>
-      <div class="note">${o.coverage ? `${o.coverage.percent}% of ${o.coverage.households} households` : 'no denominator'}</div></div>
-    <div class="card tile"><div class="label">Villages in view</div>
+      <div class="note">${o.coverage ? `${o.coverage.percent}% of ${o.coverage.households} households on record` : 'no denominator'}</div></div>
+    <div class="card tile accent"><div class="label">Villages in view</div>
       <div class="value">${data.villages.length}</div>
       <div class="note">${data.villages.filter(v => v.coverage && !v.coverage.sufficient).length} below minimum sample</div></div>
-    <div class="card tile"><div class="label">Dimensions flagged</div>
+    <div class="card tile accent"><div class="label">Dimensions flagged</div>
       <div class="value">${flagCount}</div>
       <div class="note">${flagCount ? esc(o.flags.map(f => f.name).join(', ')) : 'none below “Basic” (43%)'}</div></div>
   </div>`));
@@ -436,14 +449,31 @@ async function villageProfile(villageId) {
   qs('[data-back]', main).onclick = () => { state.view = 'villages'; renderView(); };
 
   const c = v.coverage;
-  main.appendChild(el(`<div class="grid cols-4">
-    <div class="card tile"><div class="label">Village index</div><div class="value">${v.pct === null ? '—' : v.pct.toFixed(1) + '%'}</div>
+  const strongest = dims.map(d => d.id).sort((x, y) => (v.dims[y] || 0) - (v.dims[x] || 0))[0];
+  const weakest = dims.map(d => d.id).sort((x, y) => (v.dims[x] || 0) - (v.dims[y] || 0))[0];
+  const vhero = el(`<div class="hero">
+    <div data-gauge></div>
+    <div class="hero-text">
+      <div class="hero-title">${esc(meta.name)} · village index</div>
+      <div class="hero-band">Band ${v.band} · ${esc(v.band_label)}</div>
+      <div class="hero-note">${v.n} surveys${c ? `, ${c.percent}% of ${meta.households} households — ${c.sufficient ? 'sample sufficient' : 'below the minimum sample'}` : ''}.</div>
+      <div class="hero-chips">
+        <span class="chip">Strongest · ${esc(dimName(strongest))} ${fmtPct(v.dims[strongest])}</span>
+        <span class="chip">Weakest · ${esc(dimName(weakest))} ${fmtPct(v.dims[weakest])}</span>
+        ${v.flags.length ? `<span class="chip">${v.flags.length} flagged</span>` : ''}
+      </div>
+    </div></div>`);
+  main.appendChild(vhero);
+  ringGauge(qs('[data-gauge]', vhero), { value: v.vwbi, caption: 'of 100%' });
+
+  main.appendChild(el(`<div class="grid cols-4" style="margin-top:14px">
+    <div class="card tile accent"><div class="label">Village index</div><div class="value">${v.pct === null ? '—' : v.pct.toFixed(1) + '%'}</div>
       <div class="note"><span class="band-pill">Band ${v.band} · ${esc(v.band_label)}</span></div></div>
-    <div class="card tile"><div class="label">Surveys</div><div class="value">${v.n}</div>
+    <div class="card tile accent"><div class="label">Surveys</div><div class="value">${v.n}</div>
       <div class="note">${c ? `needs ${c.required} · ${c.sufficient ? 'sufficient' : 'below minimum'}` : ''}</div></div>
-    <div class="card tile"><div class="label">Coverage</div><div class="value">${c ? c.percent + '%' : '—'}</div>
+    <div class="card tile accent"><div class="label">Coverage</div><div class="value">${c ? c.percent + '%' : '—'}</div>
       <div class="note">of ${meta.households} households</div></div>
-    <div class="card tile"><div class="label">Strongest dimension</div>
+    <div class="card tile accent"><div class="label">Strongest dimension</div>
       <div class="value" style="font-size:1.3rem">${esc(dimName(dims.map(d => d.id).sort((a, b) => (v.dims[b] || 0) - (v.dims[a] || 0))[0]))}</div>
       <div class="note">${fmtPct(Math.max(...dims.map(d => v.dims[d.id] || 0)))}</div></div>
   </div>`));
