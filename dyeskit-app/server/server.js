@@ -594,8 +594,15 @@ const server = http.createServer(async (req, res) => {
 
 if (require.main === module) {
   const seeded = D.seedIfEmpty();
-  server.listen(PORT, () => {
-    console.log(`\n  DYESKIT platform running:  http://localhost:${PORT}`);
+  const HOST = process.env.HOST || '0.0.0.0';
+  server.listen(PORT, HOST, () => {
+    const nets = require('node:os').networkInterfaces();
+    const lan = Object.values(nets).flat()
+      .filter(n => n && n.family === 'IPv4' && !n.internal)
+      .map(n => n.address);
+    console.log(`\n  DYESKIT platform running`);
+    console.log(`    on this computer:   http://localhost:${PORT}`);
+    lan.forEach(ip => console.log(`    on this network:    http://${ip}:${PORT}   <- open this on your phone`));
     console.log(`  database: ${D.DB_PATH}${seeded ? '  (demo data seeded)' : ''}`);
     console.log('  sign in as  admin@dyeskit.org / Admin@123   (see README for the other roles)\n');
   });

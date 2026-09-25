@@ -16,6 +16,27 @@ The first start creates `data/dyeskit.db` and seeds demo data: 12 Ladakh village
 670 household surveys with realistic variation, field notes and an audit trail.
 `npm run reset` deletes the database and re-seeds it.
 
+## Seeing it as an app on your phone
+
+The server listens on your whole network, so with the Mac and the phone on the same Wi-Fi:
+
+1. `npm start` — it prints an address like `http://192.168.1.10:4173`
+2. Open that address in the phone's browser
+3. **Install it**: iPhone — Share → *Add to Home Screen*; Android — menu → *Install app*
+
+It then opens full-screen with its own icon, with no browser bar, like any other app. A service
+worker caches the interface shell, so the app opens instantly; data always comes from the server
+and is never cached.
+
+## Free hosting (for demos only)
+
+`render.yaml` deploys this to Render's free tier: push the repository to GitHub, then on render.com
+choose **New + → Blueprint** and point it at the repository.
+
+Free instances sleep after 15 minutes idle (the next visit takes ~30 seconds to wake) and have no
+persistent disk, so **the database resets to demo data on every restart**. Good for showing people
+the app; not a place for real household data, and the demo passwords below are public in this file.
+
 ## Demo accounts
 
 | Role | Email | Password | What they can do |

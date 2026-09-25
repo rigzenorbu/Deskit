@@ -1,0 +1,27 @@
+# Free deployment on Render (render.com) — for demos only.
+#
+# Free instances sleep after 15 minutes of inactivity (first visit afterwards takes
+# ~30 seconds to wake) and have NO persistent disk: on every restart the SQLite file
+# is recreated and the demo data is re-seeded. Anything collected on a free instance
+# is lost. That is fine for showing people the app; it is not a place for real
+# household data — see Section 12 of the plan document for real hosting.
+#
+# To deploy: push this repository to GitHub, then on render.com choose
+# "New +" -> "Blueprint" and point it at the repository.
+
+services:
+  - type: web
+    name: dyeskit
+    runtime: node
+    plan: free
+    rootDir: dyeskit-app
+    buildCommand: npm install
+    startCommand: node server/server.js
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "24.4.1"
+      # Set this in the Render dashboard (not here) to switch the assistant's
+      # language-model planner on:
+      # - key: ANTHROPIC_API_KEY
+      #   sync: false
