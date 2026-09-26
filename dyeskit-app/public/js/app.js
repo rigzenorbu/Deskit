@@ -52,6 +52,14 @@ function modal(title, bodyHtml, onOk, okLabel = 'Confirm') {
 }
 const bandLabel = b => (state.meta.bands.find(x => x.band === b) || {}).label || 'Insufficient data';
 const dimName = id => (state.meta.dimensions.find(d => d.id === id) || {}).name || id;
+const dimColor = id => getComputedStyle(document.documentElement).getPropertyValue(`--dim-${id}`).trim() || 'var(--series-1)';
+const dimDot = id => `<span class="dim-dot" style="background:${dimColor(id)}"></span>`;
+const dimLegend = () => `<div class="dim-legend">${state.meta.dimensions
+  .map(d => `<span class="dim-key">${dimDot(d.id)}${esc(d.name)}</span>`).join('')}</div>`;
+const bandRamp = b => {
+  const step = { 1: '--seq-100', 2: '--seq-100', 3: '--seq-250', 4: '--seq-350', 5: '--seq-450', 6: '--seq-550', 7: '--seq-650' }[b] || '--seq-350';
+  return getComputedStyle(document.documentElement).getPropertyValue(step).trim();
+};
 const fmtDate = s => (s ? new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) : '—');
 const qstring = extra => {
   const p = new URLSearchParams();
@@ -330,6 +338,7 @@ async function viewDashboard(main) {
   const baseline = await api('/api/dashboard');
   radarChart(qs('[data-radar]', radarCard), {
     axes: dims.map(d => ({ label: d.name })),
+    axisColors: dims.map(d => dimColor(d.id)),
     series: [
       { label: 'This view', values: dims.map(d => o.dims[d.id]) },
       { label: 'All villages', values: dims.map(d => baseline.overall.dims[d.id]) },
@@ -338,11 +347,14 @@ async function viewDashboard(main) {
 
   barsH(qs('[data-villages]', villageCard), {
     rows: data.villages.map(v => ({
-      label: v.village, value: v.vwbi ?? 0, metric: 'VWBI',
-      note: `${v.n} surveys · ${v.coverage && !v.coverage.sufficient ? 'below minimum sample' : 'sample sufficient'}`,
+      label: v.village, value: v.vwbi ?? 0, metric: 'VWBI', color: bandRamp(v.band),
+      note: `Band ${v.band || '—'} · ${v.n} surveys · ${v.coverage && !v.coverage.sufficient ? 'below minimum sample' : 'sample sufficient'}`,
     })),
     reference: o.vwbi,
   });
+  qs('[data-villages]', villageCard).insertAdjacentHTML('beforeend',
+    `<div class="dim-legend">${state.meta.bands.slice(2).map(b =>
+      `<span class="dim-key"><span class="dim-dot" style="background:${bandRamp(b.band)}"></span>Band ${b.band}</span>`).join('')}</div>`);
 
   const row2 = el('<div class="grid cols-2" style="margin-top:14px"></div>');
   const bandCard = el(`<div class="card"><header><h3>Households by band</h3>
@@ -353,15 +365,17 @@ async function viewDashboard(main) {
   main.appendChild(row2);
 
   barsV(qs('[data-bands]', bandCard), {
-    rows: o.bands.map(b => ({ label: 'Band ' + b.band, sub: b.label.split(' ')[0], value: b.count, metric: 'Households' })),
+    rows: o.bands.map(b => ({ label: 'Band ' + b.band, sub: b.label.split(' ')[0], value: b.count,
+      metric: 'Households', color: bandRamp(b.band) })),
   });
   barsH(qs('[data-weak]', weakCard), {
     rows: data.indicators.slice(0, 10).map(i => ({
       label: i.label, value: i.score, metric: 'Mean score',
       note: `${dimName(i.dim)} · ${i.n} households`,
-      color: i.score < 0.29 ? 'var(--critical)' : i.score < 0.43 ? 'var(--serious)' : null,
+      color: dimColor(i.dim),
     })),
   });
+  qs('[data-weak]', weakCard).insertAdjacentHTML('beforeend', dimLegend());
 
   const row3 = el('<div class="grid cols-2" style="margin-top:14px"></div>');
   const mapCard = el(`<div class="card"><header><h3>Village map</h3><span class="sub">click a village to filter</span></header><div data-map></div></div>`);
@@ -431,7 +445,7 @@ async function viewVillages(main) {
       <td class="num hide-sm">${v.n}</td>
       <td class="num hide-sm">${v.coverage ? v.coverage.percent + '%' : '—'} ${v.coverage && !v.coverage.sufficient ? '<span class="status serious"><span class="dot"></span></span>' : ''}</td>
       <td class="num">${v.pct === null ? '—' : v.pct.toFixed(1) + '%'}</td>
-      <td><span class="band-pill">${v.band || '—'} · ${esc((v.band_label || '').split(' ')[0])}</span></td>
+      <td><span class="band-pill" data-band="${v.band || 0}">${v.band || '—'} · ${esc((v.band_label || '').split(' ')[0])}</span></td>
       <td class="hide-sm">${v.flags.length ? v.flags.map(f => `<span class="status ${f.severity}"><span class="dot"></span>${esc(f.name)}</span>`).join(' ') : '<span class="muted small">none</span>'}</td>
     </tr>`).join('')}</tbody></table></div></div>`);
   main.appendChild(table);
@@ -476,7 +490,7 @@ async function villageProfile(villageId) {
 
   main.appendChild(el(`<div class="grid cols-4" style="margin-top:14px">
     <div class="card tile accent"><div class="label">Village index</div><div class="value">${v.pct === null ? '—' : v.pct.toFixed(1) + '%'}</div>
-      <div class="note"><span class="band-pill">Band ${v.band} · ${esc(v.band_label)}</span></div></div>
+      <div class="note"><span class="band-pill" data-band="${v.band}">Band ${v.band} · ${esc(v.band_label)}</span></div></div>
     <div class="card tile accent"><div class="label">Surveys</div><div class="value">${v.n}</div>
       <div class="note">${c ? `needs ${c.required} · ${c.sufficient ? 'sufficient' : 'below minimum'}` : ''}</div></div>
     <div class="card tile accent"><div class="label">Coverage</div><div class="value">${c ? c.percent + '%' : '—'}</div>
@@ -494,14 +508,17 @@ async function villageProfile(villageId) {
 
   radarChart(qs('[data-radar]', radarCard), {
     axes: dims.map(d => ({ label: d.name })),
+    axisColors: dims.map(d => dimColor(d.id)),
     series: [
       { label: meta.name, values: dims.map(d => v.dims[d.id]) },
       { label: 'All villages', values: dims.map(d => all.overall.dims[d.id]) },
     ],
   });
   barsH(qs('[data-ind]', indCard), {
-    rows: data.indicators.slice(0, 10).map(i => ({ label: i.label, value: i.score, metric: 'Mean', note: dimName(i.dim) })),
+    rows: data.indicators.slice(0, 10).map(i => ({ label: i.label, value: i.score, metric: 'Mean',
+      note: dimName(i.dim), color: dimColor(i.dim) })),
   });
+  qs('[data-ind]', indCard).insertAdjacentHTML('beforeend', dimLegend());
 
   const row2 = el('<div class="grid cols-2" style="margin-top:14px"></div>');
   const prioCard = el(`<div class="card"><header><h3>Village priorities</h3><span class="sub">what households ranked</span></header><div data-prio></div></div>`);
@@ -606,7 +623,7 @@ async function openSurvey(id) {
       rows: dims.map(d => ({
         label: d.name, value: sc.dims[d.id].score ?? 0, metric: 'Dimension score',
         note: sc.dims[d.id].valid ? `${sc.dims[d.id].answered}/${sc.dims[d.id].total} indicators` : 'not enough answers yet',
-        color: sc.dims[d.id].valid ? null : 'var(--muted)',
+        color: sc.dims[d.id].valid ? dimColor(d.id) : 'var(--muted)',
       })), height: 18,
     });
     box.insertAdjacentHTML('afterbegin', `<p class="small">Well-being index so far:
@@ -736,7 +753,7 @@ async function viewData(main) {
       <td class="hide-sm">${esc(r.village)}</td><td class="hide-sm">${fmtDate(r.submitted_at)}</td>
       <td>${esc(r.status)}${r.valid ? '' : ' <span class="status serious"><span class="dot"></span>low validity</span>'}</td>
       <td class="num">${r.pct === null ? '—' : r.pct.toFixed(1) + '%'}</td>
-      <td class="hide-sm">${r.band ? `<span class="band-pill">${r.band}</span>` : '—'}</td>
+      <td class="hide-sm">${r.band ? `<span class="band-pill" data-band="${r.band}">${r.band}</span>` : '—'}</td>
       <td class="num hide-sm">${r.duration_min ?? '—'}</td>
       <td><button class="btn sm secondary" data-detail="${r.id}">Open</button></td></tr>`).join('')}</tbody>
   </table></div><p class="small muted" style="margin-top:8px">${data.rows.length} records shown.</p></div>`));
@@ -773,6 +790,7 @@ async function submissionDetail(id) {
   main.appendChild(row);
   radarChart(qs('[data-radar]', radarCard), {
     axes: dims.map(d => ({ label: d.name })),
+    axisColors: dims.map(d => dimColor(d.id)),
     series: [{ label: 'Household', values: dims.map(d => score.dims[d.id].score) }],
   });
 
@@ -1019,7 +1037,7 @@ async function viewInsights(main) {
       <thead><tr><th>Problem</th><th class="hide-sm">Dimension</th><th class="num">Households</th><th class="num hide-sm">Share</th><th class="hide-sm">Worst villages</th><th>Level</th></tr></thead>
       <tbody>${data.actions.map(a2 => `<tr>
         <td><b>${esc(a2.name)}</b><div class="small muted">${esc(a2.action)}</div></td>
-        <td class="hide-sm">${esc(dimName(a2.dim))}</td>
+        <td class="hide-sm"><span class="dim-key">${dimDot(a2.dim)}${esc(dimName(a2.dim))}</span></td>
         <td class="num">${a2.households} of ${a2.of}<span class="show-sm"> (${(a2.share * 100).toFixed(0)}%)</span></td>
         <td class="num hide-sm">${(a2.share * 100).toFixed(0)}%</td>
         <td class="small hide-sm">${esc(a2.villages.join(' · '))}</td>
@@ -1090,11 +1108,11 @@ function viewMethod(main) {
 
   main.appendChild(el(`<div class="card" style="margin-top:14px"><h3>Bands</h3>
     <div class="table-wrap"><table><thead><tr><th>Range</th><th>Band</th><th>Meaning</th></tr></thead><tbody>
-    ${state.meta.bands.map(b => `<tr><td>${b.min}–${Math.round(b.max)}%</td><td><span class="band-pill">${b.band}</span></td><td>${esc(b.label)}</td></tr>`).join('')}
+    ${state.meta.bands.map(b => `<tr><td>${b.min}–${Math.round(b.max)}%</td><td><span class="band-pill" data-band="${b.band}">${b.band}</span></td><td>${esc(b.label)}</td></tr>`).join('')}
     </tbody></table></div></div>`));
 
   main.appendChild(el(`<div class="card" style="margin-top:14px"><h3>Indicators in each dimension</h3>
-    <div class="grid cols-2">${dims.map(d => `<div><h4 style="margin:8px 0 4px">${esc(d.name)}</h4>
+    <div class="grid cols-2">${dims.map(d => `<div><h4 style="margin:8px 0 4px">${dimDot(d.id)} ${esc(d.name)}</h4>
       <ul class="small muted" style="margin:0;padding-left:18px">${(ind[d.id] || []).map(i => `<li>${esc(i.label)} <span style="opacity:.7">(${i.items.join(', ')})</span></li>`).join('')}</ul></div>`).join('')}</div>
     <p class="small muted" style="margin-top:10px">Thresholds are anchored to Indian references: ICMR / WHO Asia-Pacific BMI cut-offs,
       IPHS norms for hill and tribal areas, BIS IS 10500 drinking water, and ₹ income bands — not the Malaysian or Bhutanese values in the

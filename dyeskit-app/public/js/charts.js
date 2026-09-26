@@ -119,10 +119,10 @@ export function ringGauge(container, { value, caption, size = 128 }) {
 }
 
 /* ------------------------------------------------------------ radar */
-export function radarChart(container, { series, axes, max = 1 }) {
+export function radarChart(container, { series, axes, max = 1, axisColors = null }) {
   const size = 380, cx = size / 2, cy = size / 2 + 4, r = 104;
   // viewBox trimmed to the drawing plus its labels, so the card has no dead space
-  const svg = svgEl('svg', { class: 'chart', viewBox: `6 34 ${size - 12} ${size - 44}`, role: 'img' });
+  const svg = svgEl('svg', { class: 'chart', viewBox: `2 30 ${size - 4} ${size - 38}`, role: 'img' });
   const n = axes.length;
   const pt = (i, val) => {
     const ang = (Math.PI * 2 * i) / n - Math.PI / 2;
@@ -140,7 +140,14 @@ export function radarChart(container, { series, axes, max = 1 }) {
   axes.forEach((a, i) => {
     const [x, y] = pt(i, max);
     svg.appendChild(svgEl('line', { x1: cx, y1: cy, x2: x, y2: y, stroke: CSS('--grid'), 'stroke-width': 1 }));
-    const [lx, ly] = pt(i, max * 1.26);
+    // a small marker in the dimension's own colour sits on the outer ring, so each
+    // axis is identifiable by colour as well as by its label
+    if (axisColors && axisColors[i]) {
+      const [mx, my] = pt(i, max * 1.09);
+      svg.appendChild(svgEl('circle', { cx: mx, cy: my, r: 4.5, fill: axisColors[i],
+        stroke: CSS('--surface'), 'stroke-width': 2 }));
+    }
+    const [lx, ly] = pt(i, max * 1.3);
     const t = svgEl('text', { x: lx, y: ly, class: 'axis-label strong',
       'text-anchor': lx > cx + 4 ? 'start' : lx < cx - 4 ? 'end' : 'middle', 'dominant-baseline': 'middle' });
     t.textContent = a.label;
