@@ -10,11 +10,19 @@ const state = {
 
 /* --------------------------------------------------------------- helpers */
 async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    method: opts.method || 'GET',
-    headers: { 'Content-Type': 'application/json' },
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(path, {
+      method: opts.method || 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+  } catch {
+    // fetch only throws when the server could not be reached at all. Saying
+    // "failed" here reads as "wrong password", which sends people hunting for
+    // the wrong problem — name the real cause instead.
+    throw new Error('Cannot reach the server. Check your connection, or the link you are using may have expired.');
+  }
   if (res.status === 401 && !path.endsWith('/login')) { state.me = null; renderLogin(); throw new Error('Not signed in'); }
   const data = res.headers.get('content-type')?.includes('json') ? await res.json() : await res.text();
   if (!res.ok) throw new Error(data.error || 'Request failed');
