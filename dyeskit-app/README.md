@@ -30,7 +30,7 @@ and is never cached.
 
 ## Free hosting (for demos only)
 
-`render.yaml` deploys this to Render's free tier: push the repository to GitHub, then on render.com
+`render.yaml` (at the top of the repository) deploys this to Render's free tier: push the repository to GitHub, then on render.com
 choose **New + → Blueprint** and point it at the repository.
 
 Free instances sleep after 15 minutes idle (the next visit takes ~30 seconds to wake) and have no
