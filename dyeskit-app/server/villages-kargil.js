@@ -1,6 +1,6 @@
 'use strict';
 /**
- * The 130 revenue villages of Kargil district, by sub-division and tehsil (stored as the
+ * The 130 revenue villages of Kargil district, plus Sankoo, by sub-division and tehsil (stored as the
  * block), from the district administration's list. Synced into the villages table on
  * every start, like the Leh list. Choskore appears twice: once in Kargil tehsil, once in Taisuru.
  */
@@ -95,6 +95,7 @@ const KARGIL_VILLAGES = [
   ['Sankoo', 'Sankoo', 'Itcho'],
   ['Sankoo', 'Sankoo', 'Thasgam Thuina'],
   ['Sankoo', 'Sankoo', 'Karchey Khar'],
+  ['Sankoo', 'Sankoo', 'Sankoo'],   // not on the district revenue list, but a village in its own right
   ['Sankoo', 'Taisuru', 'Gialing'],
   ['Sankoo', 'Taisuru', 'Purtikchey'],
   ['Sankoo', 'Taisuru', 'Youljok'],

@@ -1,6 +1,6 @@
 'use strict';
 /**
- * The 113 revenue villages of Leh district, by sub-division and block, from the
+ * The 113 revenue villages of Leh district, plus Sakti, by sub-division and block, from the
  * district administration's village list. Synced into the villages table on every
  * start (see syncDistrictVillages in db.js), so adding a row here is all it takes.
  */
@@ -59,6 +59,7 @@ const LEH_VILLAGES = [
   ['Kharu', 'Kharu', 'Shara'],
   ['Kharu', 'Kharu', 'Sharnose'],
   ['Kharu', 'Kharu', 'Upshi'],
+  ['Kharu', 'Kharu', 'Sakti'],   // not on the district revenue list, but a village in its own right
   ['Leh Hqtr', 'Leh', 'Phey'],
   ['Leh Hqtr', 'Leh', 'Saboo'],
   ['Leh Hqtr', 'Leh', 'Phyang'],
