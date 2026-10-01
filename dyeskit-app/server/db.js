@@ -15,6 +15,8 @@ const fs = require('node:fs');
 const crypto = require('node:crypto');
 const { SECTIONS, ITEMS, QUESTIONNAIRE_VERSION } = require('./questionnaire');
 const { scoreSubmission, SCORING_VERSION } = require('./scoring');
+const { LEH_VILLAGES, ALIASES } = require('./villages-leh');
+const { KARGIL_VILLAGES } = require('./villages-kargil');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const DB_PATH = process.env.DYESKIT_DB || path.join(DATA_DIR, 'dyeskit.db');
@@ -97,6 +99,11 @@ CREATE TABLE IF NOT EXISTS audit (
 CREATE INDEX IF NOT EXISTS idx_sub_village ON submissions(village_id);
 CREATE INDEX IF NOT EXISTS idx_ans_sub ON answers(submission_id);
 `);
+
+// columns added after the first release — older databases get them here
+if (!db.prepare('PRAGMA table_info(villages)').all().some(c => c.name === 'subdivision')) {
+  db.exec('ALTER TABLE villages ADD COLUMN subdivision TEXT');
+}
 
 /* ---------------------------------------------------------------- helpers */
 const now = () => new Date().toISOString();
@@ -358,7 +365,34 @@ function seedIfEmpty() {
   return true;
 }
 
+/**
+ * Make sure every village on a district's official list exists. A row already carrying
+ * official details is matched by name and block (Kargil has two villages called Choskore);
+ * an older row without them is matched by name, or by its alias spelling, and gets the
+ * official block and sub-division. Missing villages are added with no household count yet.
+ * Safe to run on every start.
+ */
+function syncDistrictVillages(district, list, aliases = {}) {
+  const find = db.prepare(`SELECT id FROM villages WHERE district = ? AND lower(name) = lower(?)
+    AND (block = ? OR subdivision IS NULL) ORDER BY subdivision IS NULL LIMIT 1`);
+  const upd = db.prepare('UPDATE villages SET block = ?, subdivision = ? WHERE id = ?');
+  const ins = db.prepare('INSERT INTO villages (name,block,subdivision,district,households,created_at) VALUES (?,?,?,?,0,?)');
+  let added = 0;
+  for (const [subdivision, block, name] of list) {
+    const row = find.get(district, name, block) || (aliases[name] && find.get(district, aliases[name], block));
+    if (row) upd.run(block, subdivision, row.id);
+    else { ins.run(name, block, subdivision, district, now()); added++; }
+  }
+  if (added) audit(null, 'sync_villages', 'villages', null, { district, added });
+  return added;
+}
+
+const syncOfficialVillages = () => ({
+  leh: syncDistrictVillages('leh', LEH_VILLAGES, ALIASES),
+  kargil: syncDistrictVillages('kargil', KARGIL_VILLAGES),
+});
+
 module.exports = {
   db, now, hashPassword, verifyPassword, audit, getAnswers, saveAnswers, rescore, rescoreAll,
-  seedIfEmpty, DB_PATH, QUESTIONNAIRE_VERSION, SCORING_VERSION,
+  seedIfEmpty, syncOfficialVillages, DB_PATH, QUESTIONNAIRE_VERSION, SCORING_VERSION,
 };

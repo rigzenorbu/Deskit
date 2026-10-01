@@ -350,7 +350,7 @@ const server = http.createServer(async (req, res) => {
         questionnaire: { version: Q.QUESTIONNAIRE_VERSION, sections: Q.SECTIONS, consent: Q.CONSENT_TEXT },
         dimensions: Q.DIMENSIONS, bands: Q.BANDS, indicators: S.INDICATORS,
         scoring_version: S.SCORING_VERSION, flag_threshold: S.FLAG_THRESHOLD,
-        villages: db.prepare('SELECT id,name,block,district,households,altitude_m,lat,lon FROM villages WHERE deleted_at IS NULL ORDER BY district,name').all(),
+        villages: db.prepare('SELECT id,name,block,subdivision,district,households,altitude_m,lat,lon FROM villages WHERE deleted_at IS NULL ORDER BY district,name').all(),
         collectors: db.prepare("SELECT id,name FROM users WHERE role IN ('collector','supervisor','admin') AND status='active' ORDER BY name").all(),
       });
     }
@@ -594,6 +594,10 @@ const server = http.createServer(async (req, res) => {
 
 if (require.main === module) {
   const seeded = D.seedIfEmpty();
+  const added = D.syncOfficialVillages();
+  for (const [district, n] of Object.entries(added)) {
+    if (n) console.log(`Added ${n} ${district === 'leh' ? 'Leh' : 'Kargil'} villages from the district list.`);
+  }
   const HOST = process.env.HOST || '0.0.0.0';
   server.listen(PORT, HOST, () => {
     const nets = require('node:os').networkInterfaces();

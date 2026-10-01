@@ -153,6 +153,11 @@ label { font-size: .8rem; color: var(--ink-2); display: block; margin-bottom: 4p
 .filters .f { min-width: 132px; flex: 0 1 auto; }
 .filters .spacer { flex: 1 1 auto; }
 
+.searchbox { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+.searchbox input { flex: 1 1 auto; min-width: 0; }
+.searchbox .btn { flex: 0 0 auto; }
+.filters .searchbox { margin-bottom: 6px; }
+
 /* ----------------------------------------------------------------- cards */
 .grid { display: grid; gap: 14px; align-items: start; }
 .cols-4 { grid-template-columns: repeat(4, 1fr); }

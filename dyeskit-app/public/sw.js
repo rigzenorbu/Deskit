@@ -7,7 +7,7 @@
  *   • when the network is gone and the page is not cached, a plain offline notice is shown
  */
 
-const VERSION = 'dyeskit-shell-v6';
+const VERSION = 'dyeskit-shell-v7';
 const SHELL = [
   '/', '/index.html', '/css/theme.css', '/js/app.js', '/js/charts.js',
   '/images/logo-placeholder.svg', '/images/icon-192.png', '/images/icon-512.png',

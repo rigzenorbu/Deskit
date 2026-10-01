@@ -72,6 +72,65 @@ const statusFor = score => score === null || score === undefined ? { cls: 'muted
   : score < 0.57 ? { cls: 'warning', label: 'Basic' }
   : score < 0.71 ? { cls: 'good', label: 'Advancing' } : { cls: 'good', label: 'Strong' };
 
+/* ------------------------------------------------------- village search */
+// Leh alone has 113 villages, so every village list gets a search box.
+const districtName = d => (d === 'leh' ? 'Leh' : 'Kargil');
+const villageMatches = (v, q) => !q || [v.name, v.block, v.subdivision].some(t => t && t.toLowerCase().includes(q));
+
+/** A search field with a Search button. Filters as you type; Enter or the button calls onSubmit. */
+function searchBox(placeholder, onSearch, onSubmit) {
+  const box = el(`<div class="searchbox"><input type="search" placeholder="${esc(placeholder)}" aria-label="${esc(placeholder)}">
+    <button type="button" class="btn sm">Search</button></div>`);
+  const input = qs('input', box);
+  const q = () => input.value.trim().toLowerCase();
+  input.oninput = () => onSearch(q());
+  const submit = () => { onSearch(q()); if (onSubmit) onSubmit(q()); };
+  input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } };
+  qs('button', box).onclick = submit;
+  return box;
+}
+
+/** <option>s for a village <select>, grouped by district and block. */
+function villageOptions(villages, selected, allLabel) {
+  const groups = new Map();
+  for (const v of villages) {
+    const key = districtName(v.district) + (v.block ? ' · ' + v.block : '');
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(v);
+  }
+  const head = allLabel === undefined ? '' : `<option value="">${esc(allLabel)}</option>`;
+  if (!villages.length) return head || '<option value="">No village matches</option>';
+  return head + [...groups].sort((a, b) => a[0].localeCompare(b[0])).map(([g, vs]) =>
+    `<optgroup label="${esc(g)}">${vs.map(v =>
+      `<option value="${v.id}" ${String(v.id) === String(selected) ? 'selected' : ''}>${esc(v.name)}</option>`).join('')}</optgroup>`).join('');
+}
+
+/** Put a search box above a village <select>; Search picks the first match. */
+function attachVillageSearch(select, allLabel) {
+  const villages = state.meta.villages;
+  select.innerHTML = villageOptions(villages, select.value, allLabel);
+  const box = searchBox('Search villages', q => {
+    const cur = select.value;
+    select.innerHTML = villageOptions(villages.filter(v => villageMatches(v, q) || String(v.id) === cur), cur, allLabel);
+  }, q => {
+    const first = villages.find(v => q && villageMatches(v, q));
+    if (first && select.value !== String(first.id)) { select.value = first.id; select.dispatchEvent(new Event('change')); }
+  });
+  select.before(box);
+  return box;
+}
+
+/** Hide the elements in `items` whose village does not match. */
+function filterVillageElements(items, q, villageOf) {
+  let shown = 0;
+  for (const node of items) {
+    const ok = villageMatches(villageOf(node) || {}, q);
+    node.style.display = ok ? '' : 'none';
+    if (ok) shown++;
+  }
+  return shown;
+}
+
 /* ------------------------------------------------------------------ login */
 function renderLogin(message) {
   root.innerHTML = '';
@@ -250,6 +309,9 @@ function filterBar(onChange, opts = {}) {
     input.value = state.filters[input.dataset.f] ?? '';
     input.onchange = () => { state.filters[input.dataset.f] = input.value; onChange(); };
   });
+  const villageSelect = qs('[data-f="village_id"]', bar);
+  attachVillageSearch(villageSelect, 'All villages');
+  villageSelect.closest('.f').style.minWidth = '220px';
   qs('[data-reset]', bar).onclick = () => {
     Object.keys(state.filters).forEach(k => state.filters[k] = '');
     onChange();
@@ -433,21 +495,49 @@ async function viewVillages(main) {
   const data = state.dashboard && !qstring() ? state.dashboard : await api('/api/dashboard?' + qstring());
   main.innerHTML = '';
   main.appendChild(el(`<div class="page-head"><div><h1>Villages</h1>
-    <p>Every village in view with its score, sample coverage and flagged dimensions. Click a row for the full profile.</p></div></div>`));
+    <p>Every village with its score, sample coverage and flagged dimensions. Click a surveyed village for the full profile.</p></div></div>`));
   main.appendChild(filterBar(() => renderView()));
 
-  const table = el(`<div class="card"><div class="table-wrap"><table>
-    <thead><tr><th>Village</th><th class="hide-sm">District</th><th class="num hide-sm">Surveys</th><th class="num hide-sm">Coverage</th>
-      <th class="num">VWBI</th><th>Band</th><th class="hide-sm">Flags</th></tr></thead>
-    <tbody>${data.villages.map(v => `<tr data-v="${v.village_id}" style="cursor:pointer">
-      <td><b>${esc(v.village)}</b><div class="show-sm small muted">${v.district === 'leh' ? 'Leh' : 'Kargil'} · ${v.n} surveys</div></td>
-      <td class="hide-sm">${v.district === 'leh' ? 'Leh' : 'Kargil'}</td>
+  // villages with no surveys in this view are listed too, so the full district list is searchable
+  const metaById = new Map(state.meta.villages.map(v => [v.id, v]));
+  const surveyed = new Set(data.villages.map(v => v.village_id));
+  const f = state.filters;
+  const unsurveyed = state.rights.read === 'all'
+    ? state.meta.villages.filter(v => !surveyed.has(v.id) && (!f.district || v.district === f.district) && (!f.village_id || String(v.id) === String(f.village_id)))
+    : [];
+
+  const placeOf = id => { const m = metaById.get(id) || {}; return [m.block, m.subdivision && m.subdivision !== m.block ? m.subdivision : null].filter(Boolean).join(' · '); };
+  const rowsHtml = data.villages.map(v => `<tr data-v="${v.village_id}" data-row="${v.village_id}" style="cursor:pointer">
+      <td><b>${esc(v.village)}</b><div class="small muted">${esc(placeOf(v.village_id))}</div>
+        <div class="show-sm small muted">${districtName(v.district)} · ${v.n} surveys</div></td>
+      <td class="hide-sm">${districtName(v.district)}</td>
       <td class="num hide-sm">${v.n}</td>
       <td class="num hide-sm">${v.coverage ? v.coverage.percent + '%' : '—'} ${v.coverage && !v.coverage.sufficient ? '<span class="status serious"><span class="dot"></span></span>' : ''}</td>
       <td class="num">${v.pct === null ? '—' : v.pct.toFixed(1) + '%'}</td>
       <td><span class="band-pill" data-band="${v.band || 0}">${v.band || '—'} · ${esc((v.band_label || '').split(' ')[0])}</span></td>
       <td class="hide-sm">${v.flags.length ? v.flags.map(f => `<span class="status ${f.severity}"><span class="dot"></span>${esc(f.name)}</span>`).join(' ') : '<span class="muted small">none</span>'}</td>
-    </tr>`).join('')}</tbody></table></div></div>`);
+    </tr>`).join('') + unsurveyed.map(v => `<tr data-row="${v.id}">
+      <td><b>${esc(v.name)}</b><div class="small muted">${esc(placeOf(v.id))}</div>
+        <div class="show-sm small muted">${districtName(v.district)} · no surveys</div></td>
+      <td class="hide-sm">${districtName(v.district)}</td>
+      <td class="num hide-sm">0</td><td class="num hide-sm">—</td><td class="num">—</td>
+      <td><span class="muted small">No surveys yet</span></td><td class="hide-sm"></td>
+    </tr>`).join('');
+  const total = data.villages.length + unsurveyed.length;
+
+  const table = el(`<div class="card"><header><h3>All villages</h3><span class="sub" data-count>${total} villages</span></header>
+    <div data-search></div>
+    <div class="table-wrap"><table>
+    <thead><tr><th>Village</th><th class="hide-sm">District</th><th class="num hide-sm">Surveys</th><th class="num hide-sm">Coverage</th>
+      <th class="num">VWBI</th><th>Band</th><th class="hide-sm">Flags</th></tr></thead>
+    <tbody>${rowsHtml || '<tr><td colspan="7" class="muted small">No villages in view.</td></tr>'}</tbody></table></div>
+    <p class="muted small" data-none style="display:none">No village matches that search.</p></div>`);
+  const rows = qsa('[data-row]', table);
+  qs('[data-search]', table).appendChild(searchBox('Search by village, block or sub-division', q => {
+    const shown = filterVillageElements(rows, q, tr => metaById.get(Number(tr.dataset.row)));
+    qs('[data-count]', table).textContent = q ? `${shown} of ${total} villages` : `${total} villages`;
+    qs('[data-none]', table).style.display = shown || !total ? 'none' : '';
+  }));
   main.appendChild(table);
   qsa('[data-v]', table).forEach(tr => tr.onclick = () => villageProfile(Number(tr.dataset.v)));
 }
@@ -570,11 +660,12 @@ async function viewCollect(main) {
   qs('[data-new]', main).onclick = () => {
     const villages = state.meta.villages;
     modal('Start a new survey', `
-      <div><label>Village</label><select data-village>${villages.map(v => `<option value="${v.id}">${esc(v.name)} — ${v.district === 'leh' ? 'Leh' : 'Kargil'}</option>`).join('')}</select></div>
+      <div><label>Village</label><select data-village>${villageOptions(villages)}</select></div>
       <div><label>Household head name (kept private, never exported to analysts)</label><input data-head placeholder="optional"></div>
       <div class="notice small"><b>Consent script — read aloud</b><br>${esc(state.meta.questionnaire.consent)}</div>
       <label class="inline" style="font-size:.9rem"><input type="checkbox" data-consent style="width:auto"> The respondent agreed to take part.</label>
     `, async back => {
+      if (!qs('[data-village]', back).value) { toast('Choose a village first'); return false; }
       if (!qs('[data-consent]', back).checked) { toast('Consent is required before the survey opens'); return false; }
       const r = await api('/api/submissions', { method: 'POST', body: {
         village_id: Number(qs('[data-village]', back).value),
@@ -583,6 +674,7 @@ async function viewCollect(main) {
       toast('Survey created: ' + r.household_code);
       openSurvey(r.id);
     }, 'Start survey');
+    attachVillageSearch(qs('.modal [data-village]'));
   };
 }
 
@@ -653,10 +745,14 @@ async function openSurvey(id) {
     const slot = qs('[data-input]', wrap);
     const set = (v) => { draft[item.id] = v; recompute(); };
 
-    if (item.type === 'single' || item.type === 'village') {
-      const opts = item.type === 'village'
-        ? state.meta.villages.map(v => ({ v: v.name, label: v.name }))
-        : item.options;
+    if (item.type === 'village') {
+      const cur = state.meta.villages.find(v => v.name === draft[item.id]);
+      const sel = el(`<select>${villageOptions(state.meta.villages, cur ? cur.id : '', 'Choose village')}</select>`);
+      slot.appendChild(sel);
+      attachVillageSearch(sel, 'Choose village');
+      sel.onchange = () => { const v = state.meta.villages.find(x => String(x.id) === sel.value); set(v ? v.name : undefined); };
+    } else if (item.type === 'single') {
+      const opts = item.options;
       const box = el('<div class="opts"></div>');
       opts.forEach(op => {
         const b = el(`<button type="button" class="opt" aria-pressed="${draft[item.id] === op.v}">${esc(op.label)}</button>`);
@@ -914,28 +1010,35 @@ async function viewAdmin(main) {
   qsa('[data-assign]', userCard).forEach(b => b.onclick = () => {
     const u = users.rows.find(x => x.id == b.dataset.assign);
     const owned = new Set(u.villages.map(v => v.id));
-    modal(`Villages for ${u.name}`, `<div class="opts">${state.meta.villages.map(v =>
+    const m = modal(`Villages for ${u.name}`, `<div data-assign-search></div><div class="opts">${state.meta.villages.map(v =>
       `<button type="button" class="opt" data-v="${v.id}" aria-pressed="${owned.has(v.id)}">${esc(v.name)}</button>`).join('')}</div>
       <p class="small muted">A field researcher can only collect and see data in the villages selected here.</p>`,
       async back => {
         const chosen = qsa('[data-v]', back).filter(x => x.getAttribute('aria-pressed') === 'true').map(x => Number(x.dataset.v));
         await patchUser(u.id, { villages: chosen });
       }, 'Save');
+    const byId = new Map(state.meta.villages.map(v => [v.id, v]));
+    qs('[data-assign-search]', m).appendChild(searchBox('Search villages', q =>
+      filterVillageElements(qsa('[data-v]', m), q, btn => byId.get(Number(btn.dataset.v)))));
     setTimeout(() => qsa('.modal [data-v]').forEach(btn => btn.onclick = () =>
       btn.setAttribute('aria-pressed', btn.getAttribute('aria-pressed') === 'true' ? 'false' : 'true')), 0);
   });
 
   const villageCard = el(`<div class="card" style="margin-top:14px"><header><h3>Villages</h3>
     <span class="sub">household counts drive the coverage check</span></header>
+    <div data-village-search></div>
     <div class="table-wrap"><table><thead><tr><th>Village</th><th>Block</th><th>District</th><th class="num">Households</th><th class="num">Altitude</th><th></th></tr></thead>
-    <tbody>${state.meta.villages.map(v => `<tr>
-      <td>${esc(v.name)}</td><td>${esc(v.block || '')}</td><td>${v.district === 'leh' ? 'Leh' : 'Kargil'}</td>
+    <tbody>${state.meta.villages.map(v => `<tr data-row="${v.id}">
+      <td>${esc(v.name)}</td><td>${esc(v.block || '')}${v.subdivision && v.subdivision !== v.block ? `<div class="small muted">${esc(v.subdivision)}</div>` : ''}</td><td>${v.district === 'leh' ? 'Leh' : 'Kargil'}</td>
       <td class="num"><input type="number" value="${v.households}" data-hh="${v.id}" style="width:92px"></td>
       <td class="num">${v.altitude_m || '—'}</td>
       <td><button class="btn sm secondary" data-save-village="${v.id}">Save</button></td></tr>`).join('')}
     </tbody></table></div>
     <div class="inline" style="margin-top:10px"><button class="btn sm" data-add-village>+ Add village</button></div></div>`);
   main.appendChild(villageCard);
+  const adminById = new Map(state.meta.villages.map(v => [v.id, v]));
+  qs('[data-village-search]', villageCard).appendChild(searchBox('Search villages', q =>
+    filterVillageElements(qsa('[data-row]', villageCard), q, tr => adminById.get(Number(tr.dataset.row)))));
   qsa('[data-save-village]', villageCard).forEach(b => b.onclick = async () => {
     const id = b.dataset.saveVillage;
     await api('/api/villages/' + id, { method: 'PATCH', body: { households: Number(qs(`[data-hh="${id}"]`, villageCard).value) } });
