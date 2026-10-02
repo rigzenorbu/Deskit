@@ -1,0 +1,335 @@
+/**
+ * Districts of Ladakh and their revenue villages.
+ *
+ * Source: Ladakh Gazette (Extraordinary), Revenue Department notification S.O. 180,
+ * 27 April 2026, which created Sham, Nubra, Changthang, Zanskar and Drass alongside
+ * Leh and Kargil and redefined which revenue villages belong to each district.
+ *
+ * The notification moves villages between districts only. Sub-divisions, tehsils/blocks
+ * and patwar halqas continue as before until notified separately, so every village keeps
+ * its existing block and sub-division here.
+ *
+ * Each row: [sub-division, block, name, village code, gazette spelling].
+ *   • name          the spelling used in the district village lists
+ *   • village code  three letters, fixed forever, unique within the district; used in
+ *                   household codes such as L_CHL_001 (Leh district, Choglamsar, household 1)
+ *   • gazette       the notification's spelling, only where it differs; search finds both
+ *
+ * Counts per district match the notification exactly: Leh 44, Sham 27, Nubra 30,
+ * Changthang 24, Kargil 80 (+ Sankoo), Zanskar 26, Drass 19 — 250 revenue villages.
+ */
+
+export type DistrictId = 'leh' | 'sham' | 'nubra' | 'changthang' | 'kargil' | 'zanskar' | 'drass';
+
+export interface District {
+  id: DistrictId;
+  name: string;
+  /** single letter that starts every household code in the district */
+  letter: string;
+  headquarters: string;
+  /** revenue villages in the notification (Kargil's Sankoo is listed in addition) */
+  gazetteVillages: number;
+}
+
+export const DISTRICTS: District[] = [
+  { id: 'leh', name: 'Leh', letter: 'L', headquarters: 'Leh', gazetteVillages: 44 },
+  { id: 'sham', name: 'Sham', letter: 'S', headquarters: 'Khaltse', gazetteVillages: 27 },
+  { id: 'nubra', name: 'Nubra', letter: 'N', headquarters: 'Diskit', gazetteVillages: 30 },
+  { id: 'changthang', name: 'Changthang', letter: 'C', headquarters: 'Nyoma', gazetteVillages: 24 },
+  { id: 'kargil', name: 'Kargil', letter: 'K', headquarters: 'Kargil', gazetteVillages: 80 },
+  { id: 'zanskar', name: 'Zanskar', letter: 'Z', headquarters: 'Padum', gazetteVillages: 26 },
+  { id: 'drass', name: 'Drass', letter: 'D', headquarters: 'Drass-Ranbirpura', gazetteVillages: 19 },
+];
+
+export const DISTRICT_BY_ID = Object.fromEntries(DISTRICTS.map(d => [d.id, d])) as Record<DistrictId, District>;
+export const districtName = (id: string) => DISTRICT_BY_ID[id as DistrictId]?.name ?? id;
+
+export interface OfficialVillage {
+  district: DistrictId;
+  subdivision: string;
+  block: string;
+  name: string;
+  code: string;
+  gazetteName: string | null;
+  /** true when the village is not on the notification's list (Sankoo) */
+  extra?: boolean;
+}
+
+type Row = [subdivision: string, block: string, name: string, code: string, gazette?: string];
+
+const ROWS: Record<DistrictId, Row[]> = {
+  leh: [
+    ['Leh Hqtr', 'Leh', 'Gompa Gangless', 'GOG'],
+    ['Leh Hqtr', 'Leh', 'Sankar Yourtung', 'SAY'],
+    ['Leh Hqtr', 'Leh', 'Leh Ladakh', 'LEL'],
+    ['Leh Hqtr', 'Leh', 'Skara', 'SKR'],
+    ['Leh Hqtr', 'Leh', 'Cholglamsar', 'CHL', 'Choglamsar'],
+    ['Leh Hqtr', 'Leh', 'Saboo', 'SAB'],
+    ['Leh Hqtr', 'Thiksay', 'Thiksey', 'THK', 'Thiksay'],
+    ['Leh Hqtr', 'Thiksay', 'Nang', 'NNG'],
+    ['Leh Hqtr', 'Thiksay', 'Rambir Por', 'RAP', 'Rambirpur'],
+    ['Leh Hqtr', 'Thiksay', 'Shey', 'SHY', 'Shay'],
+    ['Leh Hqtr', 'Leh', 'Phyang', 'PHY'],
+    ['Leh Hqtr', 'Leh', 'Spituk', 'SPT'],
+    ['Leh Hqtr', 'Leh', 'Phey', 'PHE', 'Phay'],
+    ['Likir', 'Nimoo', 'Taroo', 'TAR', 'Taru'],
+    ['Likir', 'Nimoo', 'Umla', 'UML'],
+    ['Likir', 'Nimoo', 'Skiumarkha', 'SKM', 'Sku Marka'],
+    ['Likir', 'Nimoo', 'Rumbak', 'RMB'],
+    ['Likir', 'Nimoo', 'Chiling Sumda', 'CHS', 'Chilling Sumda'],
+    ['Khaltsi', 'Singaylalok', 'Lingshet', 'LNG', 'Lingshed'],
+    ['Khaltsi', 'Singaylalok', 'Youl Chung', 'YOC', 'Youlchung'],
+    ['Likir', 'Nimoo', 'Bazgoo', 'BZG', 'Basgo'],
+    ['Likir', 'Nimoo', 'Ney', 'NEY'],
+    ['Likir', 'Nimoo', 'Nimmoo', 'NMM', 'Nimoo'],
+    ['Leh Hqtr', 'Chuchot', 'Mathoo', 'MTH', 'Matho'],
+    ['Leh Hqtr', 'Chuchot', 'Stakna', 'STK', 'Stanka'],
+    ['Leh Hqtr', 'Chuchot', 'Chuchot Yakma', 'CHY', 'Chushot Yokma'],
+    ['Leh Hqtr', 'Chuchot', 'Stok', 'STO'],
+    ['Leh Hqtr', 'Chuchot', 'Chuchot Gongma', 'CHG', 'Chushot Gongma'],
+    ['Leh Hqtr', 'Chuchot', 'Chuchot Shama', 'CSH', 'Chushot Shamma'],
+    ['Kharu', 'Kharu', 'Igoo', 'IGO'],
+    ['Kharu', 'Kharu', 'Langokor', 'LNK', 'Langkor'],
+    ['Kharu', 'Kharu', 'Shara', 'SHR'],
+    ['Kharu', 'Kharu', 'Sharnose', 'SHN', 'Sharnos'],
+    ['Kharu', 'Kharu', 'Phuktse', 'PHK', 'Phuktsay'],
+    ['Kharu', 'Kharu', 'Sakti', 'SKT'],
+    ['Kharu', 'Kharu', 'Kharu', 'KHR'],
+    ['Kharu', 'Kharu', 'Chemday', 'CHM'],
+    ['Kharu', 'Kharu', 'Matselang', 'MTS', 'Martselang'],
+    ['Kharu', 'Kharu', 'Hemis', 'HMS'],
+    ['Kharu', 'Kharu', 'Shang', 'SHG'],
+    ['Kharu', 'Kharu', 'Changa', 'CHN'],
+    ['Kharu', 'Kharu', 'Upshi', 'UPS'],
+    ['Kharu', 'Kharu', 'Miru', 'MIR', 'Meru'],
+    ['Kharu', 'Kharu', 'Gia', 'GIA'],
+  ],
+  sham: [
+    ['Khaltsi', 'Khaltsi', 'Khaltsi', 'KHL'],
+    ['Khaltsi', 'Khaltsi', 'Skindiang', 'SKN', 'Skindiyang'],
+    ['Khaltsi', 'Singaylalok', 'Fotoksar', 'FTK'],
+    ['Khaltsi', 'Singaylalok', 'Wanla', 'WNL'],
+    ['Khaltsi', 'Khaltsi', 'Lamayuru', 'LMY'],
+    ['Khaltsi', 'Khaltsi', 'Kanji', 'KNJ', 'Kanjee'],
+    ['Shakar-Chiktan', 'Shakar-Chiktan', 'Bodhkharboo', 'BDH'],
+    ['Shakar-Chiktan', 'Shakar-Chiktan', 'Haniskote', 'HNS'],
+    ['Khaltsi', 'Skurbuchan', 'Skur Buchan', 'SKB', 'Skurbuchan'],
+    ['Khaltsi', 'Khaltsi', 'Leh Dho', 'LED', 'Lehdo'],
+    ['Shakar-Chiktan', 'Shakar-Chiktan', 'Kukshow', 'KKS'],
+    ['Khaltsi', 'Skurbuchan', 'Damkhar', 'DMK', 'Domkhar'],
+    ['Khaltsi', 'Khaltsi', 'Takmachik', 'TKM'],
+    ['Khaltsi', 'Skurbuchan', 'Dah', 'DAH', 'Dha Bema'],
+    ['Khaltsi', 'Skurbuchan', 'Hanoo', 'HAN', 'Hanu'],
+    ['Kargil HQ', 'Kargil', 'Garkone', 'GRK'],
+    ['Kargil HQ', 'Kargil', 'Darchiks', 'DRC'],
+    ['Likir', 'Nimoo', 'Likir', 'LKR'],
+    ['Likir', 'Saspol', 'Suspol', 'SSP', 'Saspol'],
+    ['Likir', 'Saspol', 'Hemis Shukpachan', 'HES', 'Hemisshukpachan'],
+    ['Likir', 'Saspol', 'Saspochey', 'SSC', 'Saspochay'],
+    ['Likir', 'Saspol', 'Alchi', 'ALC'],
+    ['Likir', 'Saspol', 'Giramangu', 'GRM', 'Gaira-Magnu'],
+    ['Khaltsi', 'Khaltsi', 'Temisgam', 'TMS'],
+    ['Khaltsi', 'Khaltsi', 'Tia', 'TIA'],
+    ['Khaltsi', 'Khaltsi', 'Nurla', 'NRL'],
+    ['Likir', 'Saspol', 'Tarhipti', 'TRH', 'Tar Hipti'],
+  ],
+  nubra: [
+    ['Nubra', 'Diskit', 'Disket', 'DSK', 'Diskit'],
+    ['Nubra', 'Diskit', 'Hundar', 'HND', 'Hunder'],
+    ['Nubra', 'Diskit', 'Skanpuk', 'SKN', 'Skampuk'],
+    ['Nubra', 'Diskit', 'Hundar Dok', 'HUD', 'Hunder Dok'],
+    ['Nubra', 'Diskit', 'Partapur', 'PRT', 'Partapuk'],
+    ['Nubra', 'Diskit', 'Khardong', 'KHR'],
+    ['Nubra', 'Diskit', 'Khalsar', 'KHL', 'Khaltsar'],
+    ['Nubra', 'Diskit', 'Tangyar', 'TNG'],
+    ['Nubra', 'Diskit', 'Diger', 'DGR', 'Digger'],
+    ['Nubra', 'Diskit', 'Khema Khungru', 'KHK', 'KhamaKhungru'],
+    ['Nubra', 'Diskit', 'Udmaru', 'UDM', 'Udamru'],
+    ['Nubra', 'Diskit', 'Skuru', 'SKR'],
+    ['Nubra', 'Diskit', 'Terchey', 'TRC', 'Tartse'],
+    ['Nubra', 'Diskit', 'Hundri', 'HNR'],
+    ['Nubra', 'Diskit', 'Largiab', 'LRG', 'Largyab'],
+    ['Nubra', 'Diskit', 'Warisfistan', 'WRS', 'VarisFastan'],
+    ['Nubra', 'Turtuk', 'Bogdang', 'BGD'],
+    ['Nubra', 'Turtuk', 'Chulungkha', 'CHL'],
+    ['Nubra', 'Turtuk', 'Turtuk Yul', 'TUY'],
+    ['Nubra', 'Turtuk', 'Turtuk Farol', 'TUF'],
+    ['Nubra', 'Turtuk', 'Tyakshi-A', 'TYA'],
+    ['Nubra', 'Turtuk', 'Tyakshi-B', 'TYB'],
+    ['Nubra', 'Turtuk', 'Thanga Chathang', 'THC', 'Thang'],
+    ['Nubra', 'Panamik', 'Sumoor', 'SMR'],
+    ['Nubra', 'Panamik', 'Tiggar', 'TGG', 'Tigger'],
+    ['Nubra', 'Diskit', 'Lakjung', 'LKJ'],
+    ['Nubra', 'Panamik', 'Chamshan Charasa', 'CHC', 'ChamshaCharasa'],
+    ['Nubra', 'Panamik', 'Panamic', 'PNM', 'Panamik'],
+    ['Nubra', 'Panamik', 'Kubed', 'KBD'],
+    ['Nubra', 'Panamik', 'Khemi', 'KHM', 'Kheme'],
+  ],
+  changthang: [
+    ['Nyoma', 'Nyoma', 'Nyoma', 'NYM'],
+    ['Nyoma', 'Nyoma', 'Mood', 'MOO', 'Mudh'],
+    ['Nyoma', 'Nyoma', 'Anlay', 'ANL'],
+    ['Nyoma', 'Nyoma', 'Koyul', 'KYL'],
+    ['Nyoma', 'Nyoma', 'Demjok', 'DMJ', 'Damjok'],
+    ['Nyoma', 'Rong-Chumathang', 'Kumgyam', 'KMG', 'Kungaym'],
+    ['Nyoma', 'Rong-Chumathang', 'Kerey', 'KRY', 'Kariy'],
+    ['Nyoma', 'Rong-Chumathang', 'Skitmang', 'SKT'],
+    ['Nyoma', 'Rong-Chumathang', 'Chumathang', 'CHM'],
+    ['Nyoma', 'Rong-Chumathang', 'Himya', 'HMY', 'Hemya'],
+    ['Nyoma', 'Rong-Chumathang', 'Teri', 'TER'],
+    ['Nyoma', 'Rong-Chumathang', 'Tarchit', 'TRC'],
+    ['Nyoma', 'Rong-Chumathang', 'Tukla', 'TKL'],
+    ['Nyoma', 'Rong-Chumathang', 'Liktse', 'LKT'],
+    ['Nyoma', 'Rupsho-Puga', 'Karzok', 'KRZ', 'Korzok'],
+    ['Nyoma', 'Rupsho-Puga', 'Samad Rakchan', 'SAR', 'Samadrokchan'],
+    ['Nyoma', 'Rupsho-Puga', 'Kharnak', 'KHR'],
+    ['Durbuk', 'Durbuk', 'Durbuk', 'DRB'],
+    ['Durbuk', 'Durbuk', 'Tangste', 'TNG', 'Tangtse'],
+    ['Durbuk', 'Durbuk', 'Shachukul', 'SHC'],
+    ['Durbuk', 'Durbuk', 'Phulaks', 'PHL'],
+    ['Durbuk', 'Durbuk', 'Chushul', 'CHS'],
+    ['Durbuk', 'Durbuk', 'Man Pangong', 'MAP', 'Maan Pangong'],
+    ['Durbuk', 'Durbuk', 'Kargyam', 'KRG'],
+  ],
+  kargil: [
+    ['Kargil HQ', 'Kargil', 'Kaksar', 'KKS'],
+    ['Kargil HQ', 'Kargil', 'Karkit', 'KRK'],
+    ['Kargil HQ', 'Kargil', 'Drelong (Latoo)', 'DRL'],
+    ['Kargil HQ', 'Kargil', 'Chuliskamboo', 'CHL'],
+    ['Kargil HQ', 'Kargil', 'Hardass', 'HRD'],
+    ['Kargil HQ', 'Kargil', 'Shilikchey', 'SHL'],
+    ['Kargil HQ', 'Kargil', 'Poyen', 'PYN'],
+    ['Kargil HQ', 'Kargil', 'Bagh Khumani', 'BAK'],
+    ['Kargil HQ', 'Kargil', 'Kargil', 'KRG'],
+    ['Kargil HQ', 'Kargil', 'Baroo', 'BAR'],
+    ['Kargil HQ', 'Kargil', 'Minjee', 'MNJ'],
+    ['Kargil HQ', 'Kargil', 'Choskore', 'CHS'],
+    ['Kargil HQ', 'Kargil', 'Safi', 'SAF'],
+    ['Kargil HQ', 'Kargil', 'Batambis', 'BTM'],
+    ['Kargil HQ', 'Kargil', 'Yourbaltak', 'YRB'],
+    ['Kargil HQ', 'Kargil', 'Akchamal', 'AKC'],
+    ['Kargil HQ', 'Kargil', 'Apatee', 'APT'],
+    ['Kargil HQ', 'Kargil', 'Tumail', 'TML'],
+    ['Kargil HQ', 'Kargil', 'Barchey', 'BRC'],
+    ['Kargil HQ', 'Kargil', 'Silmoo', 'SLM'],
+    ['Kargil HQ', 'Kargil', 'Lalung', 'LLN'],
+    ['Kargil HQ', 'Kargil', 'Chulichan', 'CHC'],
+    ['Kargil HQ', 'Kargil', 'Pashkum', 'PSH'],
+    ['Shargole', 'Shargole', 'Lotsum', 'LTS', 'Lochum'],
+    ['Shargole', 'Shargole', 'Darket', 'DRK'],
+    ['Shargole', 'Shargole', 'Tacha', 'TCH'],
+    ['Shargole', 'Shargole', 'Karit', 'KRT'],
+    ['Shargole', 'Shargole', 'Numunchey', 'NMN'],
+    ['Shargole', 'Shargole', 'Kukstay', 'KKT'],
+    ['Shargole', 'Shargole', 'Skamboo', 'SKM'],
+    ['Shargole', 'Shargole', 'Shargole', 'SHR', 'Shergole'],
+    ['Shargole', 'Shargole', 'Khachey', 'KHC'],
+    ['Shargole', 'Shargole', 'Karamba', 'KRM'],
+    ['Shargole', 'Shargole', 'Phoo', 'PHO'],
+    ['Shargole', 'Shargole', 'Tingdoo', 'TNG'],
+    ['Shargole', 'Shargole', 'Wakha', 'WKH'],
+    ['Shargole', 'Shargole', 'Mulbekh', 'MLB'],
+    ['Shakar-Chiktan', 'Shakar-Chiktan', 'Stakchey', 'STK'],
+    ['Shakar-Chiktan', 'Shakar-Chiktan', 'Samrah', 'SMR'],
+    ['Shakar-Chiktan', 'Shakar-Chiktan', 'Chiktan', 'CHK'],
+    ['Shakar-Chiktan', 'Shakar-Chiktan', 'Hagnis', 'HGN'],
+    ['Shakar-Chiktan', 'Shakar-Chiktan', 'Sanjak', 'SNJ'],
+    ['Shakar-Chiktan', 'Shakar-Chiktan', 'Shakar', 'SHK'],
+    ['Shakar-Chiktan', 'Shakar-Chiktan', 'Lamsoo Sandoo', 'LAS'],
+    ['Shakar-Chiktan', 'Shakar-Chiktan', 'Youkma-Kharboo', 'YOK', 'Youkma Kharboo'],
+    ['Sankoo', 'Sankoo', 'Trespone', 'TRS'],
+    ['Sankoo', 'Sankoo', 'Kanoor', 'KNR'],
+    ['Sankoo', 'Sankoo', 'Saliskote', 'SLS'],
+    ['Sankoo', 'Sankoo', 'G.M.Pore', 'GMP', 'Gound Mangal Pore'],
+    ['Sankoo', 'Sankoo', 'Tambis', 'TMB'],
+    ['Sankoo', 'Sankoo', 'Faroona', 'FRN'],
+    ['Sankoo', 'Sankoo', 'Lankarchey', 'LNK'],
+    ['Sankoo', 'Sankoo', 'Stakpa', 'STP'],
+    ['Sankoo', 'Sankoo', 'Umba', 'UMB'],
+    ['Sankoo', 'Sankoo', 'Thangdumbur', 'THN'],
+    ['Sankoo', 'Sankoo', 'Nagmakusar', 'NGM'],
+    ['Sankoo', 'Sankoo', 'Sangrah', 'SNG'],
+    ['Sankoo', 'Sankoo', 'Karpokhar', 'KRP'],
+    ['Sankoo', 'Sankoo', 'Barsoo', 'BRS'],
+    ['Sankoo', 'Sankoo', 'Khandi', 'KHN'],
+    ['Sankoo', 'Sankoo', 'Bartoo', 'BRT'],
+    ['Sankoo', 'Sankoo', 'Shargandi', 'SHG'],
+    ['Sankoo', 'Sankoo', 'Itcho', 'ITC'],
+    ['Sankoo', 'Sankoo', 'Thasgam Thuina', 'THT'],
+    ['Sankoo', 'Sankoo', 'Karchey Khar', 'KAK'],
+    ['Sankoo', 'Taisuru', 'Gialing', 'GLN', 'Gailing'],
+    ['Sankoo', 'Taisuru', 'Purtikchey', 'PRT'],
+    ['Sankoo', 'Taisuru', 'Youljok', 'YLJ', 'Youljuk'],
+    ['Sankoo', 'Taisuru', 'Kargee', 'KAR'],
+    ['Sankoo', 'Taisuru', 'Panikhar', 'PNK'],
+    ['Sankoo', 'Taisuru', 'Printee', 'PRN'],
+    ['Sankoo', 'Taisuru', 'Choskore', 'CHR'],
+    ['Sankoo', 'Taisuru', 'Taisuru', 'TSR'],
+    ['Sankoo', 'Taisuru', 'Khawos', 'KHW'],
+    ['Sankoo', 'Taisuru', 'Namsuru', 'NMS'],
+    ['Sankoo', 'Taisuru', 'Thulus Pursa', 'THP'],
+    ['Sankoo', 'Taisuru', 'Khochik', 'KHH'],
+    ['Sankoo', 'Taisuru', 'Parkachik', 'PRK'],
+    ['Sankoo', 'Taisuru', 'Tangole', 'TNL'],
+    ['Sankoo', 'Taisuru', 'Achambore', 'ACH'],
+    ['Sankoo', 'Sankoo', 'Sankoo', 'SNK'],
+  ],
+  zanskar: [
+    ['Zanskar', 'Zanskar', 'Padum', 'PDM'],
+    ['Zanskar', 'Zanskar', 'Sani', 'SAN'],
+    ['Zanskar', 'Zanskar', 'Uptipipiting', 'UPT'],
+    ['Zanskar', 'Zanskar', 'Rukruk', 'RKR', 'Ruk-Ruk'],
+    ['Zanskar', 'Zanskar', 'Salapi Gyapak', 'SAG'],
+    ['Zanskar', 'Zanskar', 'Karsha', 'KRS'],
+    ['Zanskar', 'Zanskar', 'Techakhasar', 'TCH'],
+    ['Zanskar', 'Zanskar', 'Langmi Riging', 'LAR'],
+    ['Zanskar', 'Zanskar', 'Phay', 'PHY'],
+    ['Zanskar', 'Zanskar', 'Ramilskyagam', 'RML'],
+    ['Zanskar', 'Zanskar', 'Hemiling', 'HML'],
+    ['Zanskar', 'Zanskar', 'Rantaksha', 'RNT'],
+    ['Zanskar', 'Zanskar', 'Tungri', 'TNG'],
+    ['Zanskar', 'Zanskar', 'Ating', 'ATN'],
+    ['Zanskar', 'Zanskar', 'Abran', 'ABR'],
+    ['Zanskar', 'Zanskar', 'Aksho', 'AKS'],
+    ['Sankoo', 'Taisuru', 'Rangdom', 'RNG'],
+    ['Zanskar', 'Zanskar', 'Zangla', 'ZNG'],
+    ['Zanskar', 'Zanskar', 'Thungday Khumi', 'THK'],
+    ['Zanskar', 'Zanskar', 'Chah', 'CHH'],
+    ['Zanskar', 'Zanskar', 'Testa', 'TST'],
+    ['Zanskar', 'Zanskar', 'Kargyak', 'KRG'],
+    ['Zanskar', 'Zanskar', 'Shunshday', 'SHN'],
+    ['Zanskar', 'Zanskar', 'Icher', 'ICH'],
+    ['Zanskar', 'Zanskar', 'Pipcha', 'PPC'],
+    ['Zanskar', 'Zanskar', 'Raru Money', 'RAM', 'Rarumoney'],
+  ],
+  drass: [
+    ['Drass', 'Drass', 'Drass', 'DRS'],
+    ['Drass', 'Drass', 'Trongion', 'TRN'],
+    ['Drass', 'Drass', 'Haripora (uninhabited)', 'HRP'],
+    ['Drass', 'Drass', 'Goshan', 'GSH'],
+    ['Drass', 'Drass', 'Muradbagh', 'MRD'],
+    ['Drass', 'Drass', 'Youlboo', 'YLB'],
+    ['Drass', 'Drass', 'Gindiyal', 'GND'],
+    ['Drass', 'Drass', 'Bhimbat', 'BHM'],
+    ['Drass', 'Drass', 'Throungos', 'THR'],
+    ['Drass', 'Drass', 'Chowkiyal', 'CHW'],
+    ['Drass', 'Drass', 'Batokol (uninhabited)', 'BTK'],
+    ['Drass', 'Drass', 'Holiyal', 'HLY'],
+    ['Drass', 'Drass', 'Mushkoo', 'MSH'],
+    ['Drass', 'Drass', 'Matayeen', 'MTY'],
+    ['Drass', 'Drass', 'Pandrass', 'PND'],
+    ['Drass', 'Drass', 'Thasgam', 'THS'],
+    ['Drass', 'Drass', 'Jasgound', 'JSG'],
+    ['Drass', 'Drass', 'Kharboo', 'KHR'],
+    ['Drass', 'Drass', 'Shimsha', 'SHM'],
+  ],
+};
+
+/** Villages kept although they are not on the notification's list. */
+const EXTRA = new Set(['kargil/Sankoo']);
+
+export const OFFICIAL_VILLAGES: OfficialVillage[] = (Object.keys(ROWS) as DistrictId[]).flatMap(district =>
+  ROWS[district].map(([subdivision, block, name, code, gazette]) => ({
+    district, subdivision, block, name, code, gazetteName: gazette ?? null,
+    ...(EXTRA.has(`${district}/${name}`) ? { extra: true } : {}),
+  })));

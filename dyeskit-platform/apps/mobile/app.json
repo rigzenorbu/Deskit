@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "DYESKIT",
+    "slug": "dyeskit",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "dyeskit",
+    "userInterfaceStyle": "automatic",
+    "description": "Village well-being data collection and insights for Ladakh \u2014 Project DYESKIT.",
+    "ios": {
+      "bundleIdentifier": "org.dyeskit.app",
+      "supportsTablet": true,
+      "icon": "./assets/images/icon.png",
+      "config": {
+        "usesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "org.dyeskit.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#16245A",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "single",
+      "favicon": "./assets/images/favicon.png",
+      "name": "DYESKIT",
+      "themeColor": "#16245A"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#16245A",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 180
+        }
+      ],
+      "expo-secure-store",
+      "expo-sqlite",
+      "expo-sharing"
+    ],
+    "experiments": {
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "39f39d78-b0d0-4714-8cf8-d30f54404cd8"
+      }
+    },
+    "owner": "rigzen077"
+  }
+}

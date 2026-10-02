@@ -1,0 +1,28 @@
+{
+  "name": "@dyeskit/server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DYESKIT API: accounts, sync, scoring, dashboards — PostgreSQL in production, embedded PGlite for local use",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "test": "tsx --test src/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "reset": "rm -rf data && tsx src/index.ts"
+  },
+  "dependencies": {
+    "@dyeskit/core": "*",
+    "@electric-sql/pglite": "^0.5.8",
+    "@fastify/cors": "^11.0.0",
+    "@fastify/static": "^10.1.0",
+    "fastify": "^5.12.0",
+    "pg": "^8.16.0",
+    "tsx": "^4.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.15.0",
+    "typescript": "~6.0.3"
+  }
+}

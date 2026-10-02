@@ -1,0 +1,17 @@
+{
+  "name": "dyeskit-platform",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Project DYESKIT — village well-being data collection, scoring and insights for Ladakh (mobile app + server)",
+  "workspaces": ["apps/*", "packages/*"],
+  "engines": { "node": ">=22.12" },
+  "scripts": {
+    "dev:server": "npm run dev -w @dyeskit/server",
+    "dev:app": "npm run start -w @dyeskit/mobile",
+    "build:web": "npm run build:web -w @dyeskit/mobile",
+    "start": "npm run start -w @dyeskit/server",
+    "test": "npm run test -w @dyeskit/core && npm run test -w @dyeskit/server",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "docs:scoring": "npm run docs -w @dyeskit/core"
+  }
+}

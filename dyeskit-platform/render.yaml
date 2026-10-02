@@ -1,0 +1,43 @@
+# One-step deployment on Render (render.com): New + → Blueprint → choose this repository.
+#
+# Creates:
+#   • dyeskit-db  — a PostgreSQL database (paid plan: backed up, survives restarts)
+#   • dyeskit     — the API server, which also serves the web version of the app
+#
+# After the first deploy, set ADMIN_EMAIL and ADMIN_PASSWORD in the Render dashboard
+# (Environment tab) and redeploy once: that creates the first admin account.
+#
+# Region: Render has no India region yet; Singapore is the nearest. For data that must stay
+# in India, see docs/DEPLOYMENT.md (AWS Mumbai / Supabase Mumbai).
+
+databases:
+  - name: dyeskit-db
+    plan: basic-256mb
+    region: singapore
+    databaseName: dyeskit
+    user: dyeskit
+
+services:
+  - type: web
+    name: dyeskit
+    runtime: node
+    plan: starter
+    region: singapore
+    buildCommand: npm ci && npm run build:web
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dyeskit-db
+          property: connectionString
+      - key: SEED_DEMO
+        value: "false"
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
