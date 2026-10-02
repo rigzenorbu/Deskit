@@ -24,6 +24,10 @@ const { db, getAnswers } = require('./db');
 const S = require('./scoring');
 const Q = require('./questionnaire');
 const { buildInsights, SIGNALS, SIGNAL_BY_ID, severityFor } = require('./insights');
+const { DISTRICTS } = require('./villages');
+
+const DISTRICT_IDS = DISTRICTS.map(d => d.id);
+const districtName = id => (DISTRICTS.find(d => d.id === id) || {}).name || id;
 
 const MODEL = process.env.DYESKIT_MODEL || 'claude-opus-5';
 const pct = v => (v === null || v === undefined ? '—' : (v * 100).toFixed(0) + '%');
@@ -60,7 +64,7 @@ const TOOLS = {
       type: 'object', additionalProperties: false,
       properties: {
         village: { type: 'string', description: 'Village name, optional' },
-        district: { type: 'string', enum: ['leh', 'kargil'], description: 'Optional district filter' },
+        district: { type: 'string', enum: DISTRICT_IDS, description: 'Optional district filter' },
         dimension: { type: 'string', enum: Q.DIMENSIONS.map(d => d.id), description: 'Rank by this dimension instead of the overall index' },
         order: { type: 'string', enum: ['lowest', 'highest'], description: 'Sort direction, default highest' },
         limit: { type: 'integer', description: 'How many villages to return, default 12' },
@@ -81,7 +85,7 @@ const TOOLS = {
       return {
         summary: rows.length ? `${rows.length} village(s), ranked by ${a.dimension ? Q.DIMENSIONS.find(d => d.id === a.dimension).name : 'overall index'}.` : 'No villages match.',
         columns: ['Village', 'District', 'Surveys', 'Coverage', a.dimension ? Q.DIMENSIONS.find(d => d.id === a.dimension).name : 'Index', 'Band', 'Sample'],
-        rows: rows.map(r => [r.village, r.district === 'leh' ? 'Leh' : 'Kargil', r.n,
+        rows: rows.map(r => [r.village, districtName(r.district), r.n,
           r.coverage ? r.coverage.percent + '%' : '—', pct(key(r)), r.band || '—',
           r.coverage && !r.coverage.sufficient ? 'BELOW MINIMUM' : 'sufficient']),
       };
@@ -91,7 +95,7 @@ const TOOLS = {
   dimension_scores: {
     description: 'All seven dimension scores for one village, a district, or everything in view.',
     schema: { type: 'object', additionalProperties: false,
-      properties: { village: { type: 'string' }, district: { type: 'string', enum: ['leh', 'kargil'] } }, required: [] },
+      properties: { village: { type: 'string' }, district: { type: 'string', enum: DISTRICT_IDS } }, required: [] },
     run: (a, ctx) => {
       let rows = inScope(insights(ctx.scope).villages, ctx.scope);
       if (a.district) rows = rows.filter(v => v.district === a.district);
@@ -110,7 +114,7 @@ const TOOLS = {
   weakest_indicators: {
     description: 'The lowest-scoring indicators (the detail inside the dimensions) for a village or district.',
     schema: { type: 'object', additionalProperties: false,
-      properties: { village: { type: 'string' }, district: { type: 'string', enum: ['leh', 'kargil'] }, limit: { type: 'integer' } }, required: [] },
+      properties: { village: { type: 'string' }, district: { type: 'string', enum: DISTRICT_IDS }, limit: { type: 'integer' } }, required: [] },
     run: (a, ctx) => {
       const ids = submissionIds(a, ctx);
       if (!ids.length) return { summary: 'No surveys match.', columns: [], rows: [] };
@@ -135,7 +139,7 @@ const TOOLS = {
     description: 'How many households are affected by a named problem (a "signal"), village by village. Call list_signals first if unsure of the id.',
     schema: { type: 'object', additionalProperties: false,
       properties: { signal_id: { type: 'string', description: 'Signal id from list_signals' },
-        village: { type: 'string' }, district: { type: 'string', enum: ['leh', 'kargil'] } },
+        village: { type: 'string' }, district: { type: 'string', enum: DISTRICT_IDS } },
       required: ['signal_id'] },
     run: (a, ctx) => {
       const sig = SIGNAL_BY_ID[a.signal_id];
@@ -215,7 +219,7 @@ const TOOLS = {
   priorities: {
     description: 'What households themselves ranked as their top development priorities.',
     schema: { type: 'object', additionalProperties: false,
-      properties: { village: { type: 'string' }, district: { type: 'string', enum: ['leh', 'kargil'] } }, required: [] },
+      properties: { village: { type: 'string' }, district: { type: 'string', enum: DISTRICT_IDS } }, required: [] },
     run: (a, ctx) => {
       const ids = submissionIds(a, ctx);
       if (!ids.length) return { summary: 'No surveys match.', columns: [], rows: [] };
@@ -321,8 +325,14 @@ const SIGNAL_WORDS = {
 
 function rulePlan(question, ctx) {
   const q = question.toLowerCase();
-  const allVillages = db.prepare('SELECT id, name FROM villages WHERE deleted_at IS NULL').all();
-  const mentioned = allVillages.filter(v => q.includes(v.name.toLowerCase()));
+  const allVillages = db.prepare('SELECT id, name, aka FROM villages WHERE deleted_at IS NULL').all();
+  // whole words only: with 250 villages, short names like Sani or Tia hide inside ordinary words
+  const says = name => new RegExp(`(^|[^a-z])${name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^a-z])`).test(q);
+  const districtSaid = DISTRICTS.find(d => says(d.name));
+  // Kargil and Drass are villages as well as districts: "villages in Kargil" means the district
+  const meansDistrict = districtSaid && /(villages|district)/.test(q);
+  const mentioned = allVillages.filter(v => (says(v.name) || (v.aka && says(v.aka)))
+    && !(meansDistrict && v.name.toLowerCase() === districtSaid.name.toLowerCase()));
   const named = mentioned.filter(v => !ctx.scope || ctx.scope.includes(v.id)).map(v => v.name);
   const blocked = mentioned.filter(v => ctx.scope && !ctx.scope.includes(v.id)).map(v => v.name);
 
@@ -331,7 +341,7 @@ function rulePlan(question, ctx) {
     return { refuse: `${blocked.join(' and ')} ${blocked.length > 1 ? 'are' : 'is'} outside the villages assigned to you, so I cannot report on ${blocked.length > 1 ? 'them' : 'it'}.`, calls: [] };
   }
 
-  const district = /kargil/.test(q) ? 'kargil' : /\bleh\b/.test(q) ? 'leh' : undefined;
+  const district = districtSaid && (meansDistrict || !mentioned.length) ? districtSaid.id : undefined;
   const dim = Object.entries(DIM_WORDS).find(([, words]) => words.some(w => q.includes(w)));
   const signal = Object.entries(SIGNAL_WORDS).find(([, words]) => words.some(w => q.includes(w)));
   const lowest = /(lowest|worst|weakest|struggl|poorest|bottom|problem|risk)/.test(q);

@@ -15,8 +15,7 @@ const fs = require('node:fs');
 const crypto = require('node:crypto');
 const { SECTIONS, ITEMS, QUESTIONNAIRE_VERSION } = require('./questionnaire');
 const { scoreSubmission, SCORING_VERSION } = require('./scoring');
-const { LEH_VILLAGES, ALIASES } = require('./villages-leh');
-const { KARGIL_VILLAGES } = require('./villages-kargil');
+const { DISTRICTS, VILLAGES, FORMER_NAMES } = require('./villages');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const DB_PATH = process.env.DYESKIT_DB || path.join(DATA_DIR, 'dyeskit.db');
@@ -101,9 +100,9 @@ CREATE INDEX IF NOT EXISTS idx_ans_sub ON answers(submission_id);
 `);
 
 // columns added after the first release — older databases get them here
-if (!db.prepare('PRAGMA table_info(villages)').all().some(c => c.name === 'subdivision')) {
-  db.exec('ALTER TABLE villages ADD COLUMN subdivision TEXT');
-}
+const villageCols = db.prepare('PRAGMA table_info(villages)').all().map(c => c.name);
+if (!villageCols.includes('subdivision')) db.exec('ALTER TABLE villages ADD COLUMN subdivision TEXT');
+if (!villageCols.includes('aka')) db.exec('ALTER TABLE villages ADD COLUMN aka TEXT');   // gazette spelling, for search
 
 /* ---------------------------------------------------------------- helpers */
 const now = () => new Date().toISOString();
@@ -173,18 +172,18 @@ function mulberry32(a) {
 }
 
 const SEED_VILLAGES = [
-  { name: 'Nimmoo', block: 'Khaltse', district: 'leh', households: 160, altitude_m: 3150, lat: 34.185, lon: 77.336, profile: 0.68 },
-  { name: 'Alchi', block: 'Khaltse', district: 'leh', households: 120, altitude_m: 3100, lat: 34.225, lon: 77.176, profile: 0.64 },
-  { name: 'Hemis Shukpachan', block: 'Khaltse', district: 'leh', households: 95, altitude_m: 3700, lat: 34.360, lon: 77.150, profile: 0.58 },
-  { name: 'Stok', block: 'Leh', district: 'leh', households: 210, altitude_m: 3500, lat: 34.055, lon: 77.545, profile: 0.72 },
-  { name: 'Sakti', block: 'Chuchot', district: 'leh', households: 180, altitude_m: 3800, lat: 34.030, lon: 77.820, profile: 0.55 },
-  { name: 'Durbuk', block: 'Durbuk', district: 'leh', households: 140, altitude_m: 4000, lat: 34.030, lon: 78.220, profile: 0.44 },
-  { name: 'Turtuk', block: 'Nubra', district: 'leh', households: 130, altitude_m: 2900, lat: 34.845, lon: 76.828, profile: 0.52 },
+  { name: 'Nimmoo', block: 'Nimoo', district: 'leh', households: 160, altitude_m: 3150, lat: 34.185, lon: 77.336, profile: 0.68 },
+  { name: 'Alchi', block: 'Saspol', district: 'sham', households: 120, altitude_m: 3100, lat: 34.225, lon: 77.176, profile: 0.64 },
+  { name: 'Hemis Shukpachan', block: 'Saspol', district: 'sham', households: 95, altitude_m: 3700, lat: 34.360, lon: 77.150, profile: 0.58 },
+  { name: 'Stok', block: 'Chuchot', district: 'leh', households: 210, altitude_m: 3500, lat: 34.055, lon: 77.545, profile: 0.72 },
+  { name: 'Sakti', block: 'Kharu', district: 'leh', households: 180, altitude_m: 3800, lat: 34.030, lon: 77.820, profile: 0.55 },
+  { name: 'Durbuk', block: 'Durbuk', district: 'changthang', households: 140, altitude_m: 4000, lat: 34.030, lon: 78.220, profile: 0.44 },
+  { name: 'Turtuk Yul', block: 'Turtuk', district: 'nubra', households: 130, altitude_m: 2900, lat: 34.845, lon: 76.828, profile: 0.52 },
   { name: 'Sankoo', block: 'Sankoo', district: 'kargil', households: 220, altitude_m: 2800, lat: 34.300, lon: 76.100, profile: 0.50 },
-  { name: 'Panikhar', block: 'Sankoo', district: 'kargil', households: 105, altitude_m: 3000, lat: 34.220, lon: 75.940, profile: 0.46 },
-  { name: 'Drass', block: 'Drass', district: 'kargil', households: 260, altitude_m: 3280, lat: 34.430, lon: 75.760, profile: 0.41 },
+  { name: 'Panikhar', block: 'Taisuru', district: 'kargil', households: 105, altitude_m: 3000, lat: 34.220, lon: 75.940, profile: 0.46 },
+  { name: 'Drass', block: 'Drass', district: 'drass', households: 260, altitude_m: 3280, lat: 34.430, lon: 75.760, profile: 0.41 },
   { name: 'Shargole', block: 'Shargole', district: 'kargil', households: 90, altitude_m: 3100, lat: 34.470, lon: 76.320, profile: 0.48 },
-  { name: 'Chiktan', block: 'Shargole', district: 'kargil', households: 110, altitude_m: 3200, lat: 34.500, lon: 76.450, profile: 0.43 },
+  { name: 'Chiktan', block: 'Shakar-Chiktan', district: 'kargil', households: 110, altitude_m: 3200, lat: 34.500, lon: 76.450, profile: 0.43 },
 ];
 
 const DEMO_USERS = [
@@ -222,6 +221,8 @@ function pickMulti(itemId, q, rnd, maxN = 3) {
 
 const likert = (q, rnd) => Math.min(5, Math.max(1, Math.round(1 + q * 4 + (rnd() - 0.5) * 1.6)));
 
+const MUSLIM_MAJORITY = new Set(['kargil', 'drass']);   // demo answers only
+
 function makeAnswers(village, q, rnd) {
   const jitter = () => Math.min(0.98, Math.max(0.05, q + (rnd() - 0.5) * 0.3));
   const a = {};
@@ -232,7 +233,7 @@ function makeAnswers(village, q, rnd) {
   a.A7 = Math.floor(2 + rnd() * 7);
   a.A8 = rnd() < 0.45 ? Math.floor(rnd() * 3) : 0;
   a.A9 = ['nuclear', 'joint', 'extended'][Math.floor(rnd() * 3)];
-  a.A10 = village.district === 'leh' ? (rnd() < 0.82 ? 'buddhist' : rnd() < 0.7 ? 'muslim' : 'hindu')
+  a.A10 = !MUSLIM_MAJORITY.has(village.district) ? (rnd() < 0.82 ? 'buddhist' : rnd() < 0.7 ? 'muslim' : 'hindu')
     : (rnd() < 0.85 ? 'muslim' : 'buddhist');
   a.A11 = pickAny('A11', rnd);
   a.A12 = pickAny('A12', rnd);
@@ -366,33 +367,57 @@ function seedIfEmpty() {
 }
 
 /**
- * Make sure every village on a district's official list exists. A row already carrying
- * official details is matched by name and block (Kargil has two villages called Choskore);
- * an older row without them is matched by name, or by its alias spelling, and gets the
- * official block and sub-division. Missing villages are added with no household count yet.
+ * Bring the villages table in line with the official list (server/villages.js):
+ *   • an existing village is matched by its name, gazette spelling or former name, within
+ *     its block (two villages share a name: Choskore, and Phey/Phay). Rows that predate
+ *     the official details (no sub-division yet) are matched by name alone. A match gets
+ *     its official district, block, sub-division and spelling; its surveys are untouched.
+ *   • a village not yet in the table is added, with no household count yet
+ *   • a village that came from an earlier official list but is not on this one is archived
+ *     if it has no surveys, and kept (with a warning) if it has. Villages an admin added by
+ *     hand are never touched.
  * Safe to run on every start.
  */
-function syncDistrictVillages(district, list, aliases = {}) {
-  const find = db.prepare(`SELECT id FROM villages WHERE district = ? AND lower(name) = lower(?)
-    AND (block = ? OR subdivision IS NULL) ORDER BY subdivision IS NULL LIMIT 1`);
-  const upd = db.prepare('UPDATE villages SET block = ?, subdivision = ? WHERE id = ?');
-  const ins = db.prepare('INSERT INTO villages (name,block,subdivision,district,households,created_at) VALUES (?,?,?,?,0,?)');
-  let added = 0;
-  for (const [subdivision, block, name] of list) {
-    const row = find.get(district, name, block) || (aliases[name] && find.get(district, aliases[name], block));
-    if (row) upd.run(block, subdivision, row.id);
-    else { ins.run(name, block, subdivision, district, now()); added++; }
-  }
-  if (added) audit(null, 'sync_villages', 'villages', null, { district, added });
-  return added;
-}
+function syncOfficialVillages() {
+  const rows = db.prepare('SELECT id, name, block, subdivision FROM villages WHERE deleted_at IS NULL').all();
+  const used = new Set();
+  const lower = s => (s || '').toLowerCase();
+  const upd = db.prepare('UPDATE villages SET name = ?, district = ?, block = ?, subdivision = ?, aka = ? WHERE id = ?');
+  const ins = db.prepare('INSERT INTO villages (name,block,subdivision,aka,district,households,created_at) VALUES (?,?,?,?,?,0,?)');
+  const result = { added: 0, updated: 0, archived: [], kept: [] };
 
-const syncOfficialVillages = () => ({
-  leh: syncDistrictVillages('leh', LEH_VILLAGES, ALIASES),
-  kargil: syncDistrictVillages('kargil', KARGIL_VILLAGES),
-});
+  for (const [district, list] of Object.entries(VILLAGES)) {
+    for (const [subdivision, block, name, aka = null] of list) {
+      const names = [name, aka, ...(FORMER_NAMES[name] || [])].filter(Boolean).map(lower);
+      const candidates = rows.filter(r => !used.has(r.id) && names.includes(lower(r.name)));
+      const row = candidates.find(r => r.block === block) || candidates.find(r => r.subdivision === null);
+      if (row) {
+        used.add(row.id);
+        upd.run(name, district, block, subdivision, aka, row.id);
+        result.updated++;
+      } else {
+        ins.run(name, block, subdivision, aka, district, now());
+        result.added++;
+      }
+    }
+  }
+
+  const surveyed = db.prepare('SELECT COUNT(*) AS c FROM submissions WHERE village_id = ?');
+  for (const r of rows) {
+    if (used.has(r.id) || r.subdivision === null) continue;
+    if (surveyed.get(r.id).c) result.kept.push(r.name);
+    else {
+      db.prepare('UPDATE villages SET deleted_at = ? WHERE id = ?').run(now(), r.id);
+      result.archived.push(r.name);
+    }
+  }
+  if (result.added || result.archived.length) {
+    audit(null, 'sync_villages', 'villages', null, { added: result.added, archived: result.archived, kept: result.kept });
+  }
+  return result;
+}
 
 module.exports = {
   db, now, hashPassword, verifyPassword, audit, getAnswers, saveAnswers, rescore, rescoreAll,
-  seedIfEmpty, syncOfficialVillages, DB_PATH, QUESTIONNAIRE_VERSION, SCORING_VERSION,
+  seedIfEmpty, syncOfficialVillages, DISTRICTS, DB_PATH, QUESTIONNAIRE_VERSION, SCORING_VERSION,
 };

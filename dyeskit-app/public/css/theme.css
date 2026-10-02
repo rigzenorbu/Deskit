@@ -157,6 +157,12 @@ label { font-size: .8rem; color: var(--ink-2); display: block; margin-bottom: 4p
 .searchbox input { flex: 1 1 auto; min-width: 0; }
 .searchbox .btn { flex: 0 0 auto; }
 .filters .searchbox { margin-bottom: 6px; }
+.filters .period { min-width: 170px; }
+.filters .period.custom { flex: 1 1 100%; max-width: 380px; }
+.date-range { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.date-range[hidden] { display: none; }
+.date-range input { min-width: 0; flex: 1 1 0; }
+.date-range span { color: var(--ink-2); font-size: .8rem; }
 
 /* ----------------------------------------------------------------- cards */
 .grid { display: grid; gap: 14px; align-items: start; }

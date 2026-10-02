@@ -350,7 +350,8 @@ const server = http.createServer(async (req, res) => {
         questionnaire: { version: Q.QUESTIONNAIRE_VERSION, sections: Q.SECTIONS, consent: Q.CONSENT_TEXT },
         dimensions: Q.DIMENSIONS, bands: Q.BANDS, indicators: S.INDICATORS,
         scoring_version: S.SCORING_VERSION, flag_threshold: S.FLAG_THRESHOLD,
-        villages: db.prepare('SELECT id,name,block,subdivision,district,households,altitude_m,lat,lon FROM villages WHERE deleted_at IS NULL ORDER BY district,name').all(),
+        districts: D.DISTRICTS,
+        villages: db.prepare('SELECT id,name,aka,block,subdivision,district,households,altitude_m,lat,lon FROM villages WHERE deleted_at IS NULL ORDER BY district,name').all(),
         collectors: db.prepare("SELECT id,name FROM users WHERE role IN ('collector','supervisor','admin') AND status='active' ORDER BY name").all(),
       });
     }
@@ -515,6 +516,7 @@ const server = http.createServer(async (req, res) => {
       need(R.manageVillages, 'Not allowed');
       const { name, block, district, households, altitude_m, lat, lon } = body;
       if (!name || !district) return json(res, 400, { error: 'name and district are required' });
+      if (!D.DISTRICTS.some(d => d.id === district)) return json(res, 400, { error: 'Unknown district' });
       db.prepare('INSERT INTO villages (name,block,district,households,altitude_m,lat,lon,created_at) VALUES (?,?,?,?,?,?,?,?)')
         .run(name, block || null, district, Number(households) || 0, Number(altitude_m) || null, lat || null, lon || null, D.now());
       D.audit(user, 'create_village', 'village', name, body);
@@ -526,6 +528,7 @@ const server = http.createServer(async (req, res) => {
       const id = Number(pathname.split('/')[3]);
       const cur = db.prepare('SELECT * FROM villages WHERE id=?').get(id);
       if (!cur) return json(res, 404, { error: 'Not found' });
+      if (body.district && !D.DISTRICTS.some(d => d.id === body.district)) return json(res, 400, { error: 'Unknown district' });
       db.prepare('UPDATE villages SET name=?, block=?, district=?, households=?, altitude_m=? WHERE id=?')
         .run(body.name ?? cur.name, body.block ?? cur.block, body.district ?? cur.district,
           body.households ?? cur.households, body.altitude_m ?? cur.altitude_m, id);
@@ -594,10 +597,10 @@ const server = http.createServer(async (req, res) => {
 
 if (require.main === module) {
   const seeded = D.seedIfEmpty();
-  const added = D.syncOfficialVillages();
-  for (const [district, n] of Object.entries(added)) {
-    if (n) console.log(`Added ${n} ${district === 'leh' ? 'Leh' : 'Kargil'} villages from the district list.`);
-  }
+  const sync = D.syncOfficialVillages();
+  if (sync.added) console.log(`Added ${sync.added} villages from the official district list.`);
+  if (sync.archived.length) console.log(`Archived ${sync.archived.length} villages no longer on the list: ${sync.archived.join(', ')}.`);
+  if (sync.kept.length) console.log(`Not on the official list but kept because they have surveys: ${sync.kept.join(', ')}.`);
   const HOST = process.env.HOST || '0.0.0.0';
   server.listen(PORT, HOST, () => {
     const nets = require('node:os').networkInterfaces();

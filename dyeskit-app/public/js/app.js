@@ -3,7 +3,7 @@ import { radarChart, barsH, barsV, lineChart, villageMap, ringGauge, fmtPct, esc
 
 const root = document.getElementById('root');
 const state = {
-  me: null, rights: null, meta: null, view: 'dashboard',
+  me: null, rights: null, meta: null, view: 'dashboard', period: '',
   filters: { district: '', village_id: '', status: '', from: '', to: '', gender: '', religion: '', age_min: '', age_max: '', band: '', collector_id: '', search: '' },
   dashboard: null, survey: null, detail: null,
 };
@@ -74,8 +74,10 @@ const statusFor = score => score === null || score === undefined ? { cls: 'muted
 
 /* ------------------------------------------------------- village search */
 // Leh alone has 113 villages, so every village list gets a search box.
-const districtName = d => (d === 'leh' ? 'Leh' : 'Kargil');
-const villageMatches = (v, q) => !q || [v.name, v.block, v.subdivision].some(t => t && t.toLowerCase().includes(q));
+const districtName = d => (state.meta.districts.find(x => x.id === d) || {}).name || d;
+const districtOptions = () => state.meta.districts.map(d => `<option value="${d.id}">${esc(d.name)}</option>`).join('');
+const villageMatches = (v, q) => !q || [v.name, v.aka, v.block, v.subdivision, districtName(v.district)]
+  .some(t => t && t.toLowerCase().includes(q));
 
 /** A search field with a Search button. Filters as you type; Enter or the button calls onSubmit. */
 function searchBox(placeholder, onSearch, onSubmit) {
@@ -100,7 +102,8 @@ function villageOptions(villages, selected, allLabel) {
   }
   const head = allLabel === undefined ? '' : `<option value="">${esc(allLabel)}</option>`;
   if (!villages.length) return head || '<option value="">No village matches</option>';
-  return head + [...groups].sort((a, b) => a[0].localeCompare(b[0])).map(([g, vs]) =>
+  const rank = v => state.meta.districts.findIndex(d => d.id === v.district);
+  return head + [...groups].sort((a, b) => rank(a[1][0]) - rank(b[1][0]) || a[0].localeCompare(b[0])).map(([g, vs]) =>
     `<optgroup label="${esc(g)}">${vs.map(v =>
       `<option value="${v.id}" ${String(v.id) === String(selected) ? 'selected' : ''}>${esc(v.name)}</option>`).join('')}</optgroup>`).join('');
 }
@@ -280,15 +283,26 @@ function renderView() {
 }
 
 /* ---------------------------------------------------------- filter bar */
+const PERIODS = [['', 'Any time'], ['7', 'Last 7 days'], ['30', 'Last 30 days'], ['90', 'Last 3 months'],
+  ['year', 'This year'], ['custom', 'Custom range…']];
+const isoDay = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function periodRange(p) {
+  if (p === 'year') return { from: `${new Date().getFullYear()}-01-01`, to: '' };
+  if (/^\d+$/.test(p)) return { from: isoDay(new Date(Date.now() - (Number(p) - 1) * 864e5)), to: '' };
+  return { from: '', to: '' };
+}
+
 function filterBar(onChange, opts = {}) {
   const v = state.meta.villages;
   const bar = el(`<div class="filters">
     <div class="f"><label>District</label><select data-f="district">
-      <option value="">All districts</option><option value="leh">Leh</option><option value="kargil">Kargil</option></select></div>
+      <option value="">All districts</option>${districtOptions()}</select></div>
     <div class="f"><label>Village</label><select data-f="village_id"><option value="">All villages</option>
       ${v.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div>
-    <div class="f"><label>From</label><input type="date" data-f="from"></div>
-    <div class="f"><label>To</label><input type="date" data-f="to"></div>
+    <div class="f period"><label>Period</label><select data-period>
+      ${PERIODS.map(([v, label]) => `<option value="${v}">${label}</option>`).join('')}</select>
+      <div class="date-range" data-custom hidden>
+        <input type="date" data-f="from" aria-label="From"><span>to</span><input type="date" data-f="to" aria-label="To"></div></div>
     <div class="f"><label>Gender</label><select data-f="gender"><option value="">Any</option>
       <option value="female">Female</option><option value="male">Male</option><option value="other">Other</option></select></div>
     <div class="f"><label>Religion</label><select data-f="religion"><option value="">Any</option>
@@ -309,11 +323,27 @@ function filterBar(onChange, opts = {}) {
     input.value = state.filters[input.dataset.f] ?? '';
     input.onchange = () => { state.filters[input.dataset.f] = input.value; onChange(); };
   });
+  // A preset period sets the dates for you; the date boxes only show for a custom range,
+  // so an empty date box (which phones draw as a faded date) never looks like a filter.
+  const period = qs('[data-period]', bar);
+  period.value = state.period || (state.filters.from || state.filters.to ? 'custom' : '');
+  qs('[data-custom]', bar).hidden = period.value !== 'custom';
+  period.closest('.f').classList.toggle('custom', period.value === 'custom');
+  period.onchange = () => {
+    state.period = period.value;
+    if (period.value === 'custom') {
+      state.filters.from = state.filters.from || isoDay(new Date(Date.now() - 29 * 864e5));
+      state.filters.to = state.filters.to || isoDay(new Date());
+    } else Object.assign(state.filters, periodRange(period.value));
+    onChange();
+  };
+
   const villageSelect = qs('[data-f="village_id"]', bar);
   attachVillageSearch(villageSelect, 'All villages');
   villageSelect.closest('.f').style.minWidth = '220px';
   qs('[data-reset]', bar).onclick = () => {
     Object.keys(state.filters).forEach(k => state.filters[k] = '');
+    state.period = '';
     onChange();
   };
 
@@ -334,12 +364,14 @@ function filterBar(onChange, opts = {}) {
 
 const activeFilterNote = () => {
   const parts = [];
-  if (state.filters.district) parts.push(state.filters.district === 'leh' ? 'Leh' : 'Kargil');
+  if (state.filters.district) parts.push(districtName(state.filters.district));
   if (state.filters.village_id) { const v = state.meta.villages.find(x => x.id == state.filters.village_id); if (v) parts.push(v.name); }
   if (state.filters.gender) parts.push(state.filters.gender);
   if (state.filters.religion) parts.push(state.filters.religion);
   if (state.filters.age_min || state.filters.age_max) parts.push(`age ${state.filters.age_min || '18'}–${state.filters.age_max || '110'}`);
-  if (state.filters.from || state.filters.to) parts.push(`${state.filters.from || 'start'} → ${state.filters.to || 'today'}`);
+  const preset = PERIODS.find(([v]) => v && v !== 'custom' && v === state.period);
+  if (preset) parts.push(preset[1].toLowerCase());
+  else if (state.filters.from || state.filters.to) parts.push(`${fmtDate(state.filters.from) === '—' ? 'start' : fmtDate(state.filters.from)} → ${state.filters.to ? fmtDate(state.filters.to) : 'today'}`);
   if (state.filters.band) parts.push(`band ${state.filters.band}`);
   return parts.length ? parts.join(' · ') : 'All villages, all respondents';
 };
@@ -555,7 +587,7 @@ async function villageProfile(villageId) {
   main.innerHTML = '';
   main.appendChild(el(`<div class="page-head"><div>
     <h1>${esc(meta.name)}</h1>
-    <p>${esc([meta.block, meta.district === 'leh' ? 'Leh' : 'Kargil'].filter((x, i, arr) => x && arr.indexOf(x) === i).join(' · '))} · ${meta.altitude_m ? meta.altitude_m + ' m' : ''} ·
+    <p>${esc([meta.block, districtName(meta.district)].filter((x, i, arr) => x && arr.indexOf(x) === i).join(' · '))} · ${meta.altitude_m ? meta.altitude_m + ' m' : ''} ·
     ${meta.households} households on record</p></div>
     <button class="btn ghost" data-back>← All villages</button></div>`));
   qs('[data-back]', main).onclick = () => { state.view = 'villages'; renderView(); };
@@ -688,7 +720,7 @@ async function openSurvey(id) {
   main.innerHTML = '';
   const head = el(`<div class="page-head"><div>
     <h1>Survey · ${esc(submission.household_code)}</h1>
-    <p>${esc(submission.village)} · ${submission.district === 'leh' ? 'Leh' : 'Kargil'} · status <b>${esc(submission.status)}</b></p>
+    <p>${esc(submission.village)} · ${districtName(submission.district)} · status <b>${esc(submission.status)}</b></p>
     <div class="progressbar" style="width:280px;margin-top:8px"><i data-progress style="width:0%"></i></div>
     <p class="small muted" data-progress-text></p></div>
     <div class="inline">
@@ -746,7 +778,9 @@ async function openSurvey(id) {
     const set = (v) => { draft[item.id] = v; recompute(); };
 
     if (item.type === 'village') {
-      const cur = state.meta.villages.find(v => v.name === draft[item.id]);
+      // fall back to the survey's own village when the village has been renamed since
+      const cur = state.meta.villages.find(v => v.name === draft[item.id])
+        || state.meta.villages.find(v => v.id === submission.village_id);
       const sel = el(`<select>${villageOptions(state.meta.villages, cur ? cur.id : '', 'Choose village')}</select>`);
       slot.appendChild(sel);
       attachVillageSearch(sel, 'Choose village');
@@ -1029,7 +1063,7 @@ async function viewAdmin(main) {
     <div data-village-search></div>
     <div class="table-wrap"><table><thead><tr><th>Village</th><th>Block</th><th>District</th><th class="num">Households</th><th class="num">Altitude</th><th></th></tr></thead>
     <tbody>${state.meta.villages.map(v => `<tr data-row="${v.id}">
-      <td>${esc(v.name)}</td><td>${esc(v.block || '')}${v.subdivision && v.subdivision !== v.block ? `<div class="small muted">${esc(v.subdivision)}</div>` : ''}</td><td>${v.district === 'leh' ? 'Leh' : 'Kargil'}</td>
+      <td>${esc(v.name)}</td><td>${esc(v.block || '')}${v.subdivision && v.subdivision !== v.block ? `<div class="small muted">${esc(v.subdivision)}</div>` : ''}</td><td>${districtName(v.district)}</td>
       <td class="num"><input type="number" value="${v.households}" data-hh="${v.id}" style="width:92px"></td>
       <td class="num">${v.altitude_m || '—'}</td>
       <td><button class="btn sm secondary" data-save-village="${v.id}">Save</button></td></tr>`).join('')}
@@ -1048,7 +1082,7 @@ async function viewAdmin(main) {
   qs('[data-add-village]', villageCard).onclick = () => modal('Add village', `
     <div><label>Name</label><input data-name></div>
     <div><label>Block / Tehsil</label><input data-block></div>
-    <div><label>District</label><select data-district><option value="leh">Leh</option><option value="kargil">Kargil</option></select></div>
+    <div><label>District</label><select data-district>${districtOptions()}</select></div>
     <div class="row2"><div><label>Households</label><input type="number" data-hh value="0"></div>
       <div><label>Altitude (m)</label><input type="number" data-alt></div></div>`, async back => {
     await api('/api/villages', { method: 'POST', body: {

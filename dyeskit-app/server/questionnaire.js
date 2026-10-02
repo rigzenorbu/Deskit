@@ -9,6 +9,8 @@
  * `rule` = named rule in scoring.js for items that are not simple option lookups
  */
 
+const { DISTRICTS } = require('./villages');
+
 const QUESTIONNAIRE_VERSION = 'v2.0';
 
 const DIMENSIONS = [
@@ -51,7 +53,7 @@ const SECTIONS = [
     items: [
       { id: 'A1', q: 'Village', type: 'village', required: true },
       { id: 'A2', q: 'Block / Tehsil', type: 'text' },
-      { id: 'A3', q: 'District', type: 'single', required: true, options: [o('leh', 'Leh'), o('kargil', 'Kargil')] },
+      { id: 'A3', q: 'District', type: 'single', required: true, options: DISTRICTS.map(d => o(d.id, d.name)) },
       { id: 'A4', q: 'Years household has lived here', type: 'number', unit: 'years', min: 0, max: 120 },
       { id: 'A5', q: 'Respondent age', type: 'number', unit: 'years', min: 18, max: 110, required: true },
       { id: 'A6', q: 'Gender', type: 'single', required: true, options: [o('male', 'Male'), o('female', 'Female'), o('other', 'Other'), PNA] },
