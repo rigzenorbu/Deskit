@@ -29,14 +29,29 @@ export interface Db extends Queryable {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
+/**
+ * Encrypt the connection for databases reached over the internet. Local databases and
+ * private-network names without a dot (e.g. Render's internal "dpg-…-a") connect without it.
+ * An explicit ?sslmode=… in the URL, or PGSSL=off, always wins.
+ */
+function wantsSsl(url: string) {
+  if (process.env.PGSSL === 'off') return undefined;
+  let host = '';
+  try {
+    const u = new URL(url);
+    const mode = u.searchParams.get('sslmode');
+    if (mode === 'disable') return undefined;
+    if (mode) return { rejectUnauthorized: false };
+    host = u.hostname || u.searchParams.get('host') || '';
+  } catch { return undefined; }
+  if (!host || host.startsWith('/') || host === 'localhost' || host === '127.0.0.1' || !host.includes('.')) return undefined;
+  return { rejectUnauthorized: false };
+}
+
 export async function openDb(url = process.env.DATABASE_URL, dataDir = process.env.DYESKIT_DATA_DIR): Promise<Db> {
   if (url) {
     const pg = (await import('pg')).default;
-    const pool = new pg.Pool({
-      connectionString: url,
-      ssl: /localhost|127\.0\.0\.1|\/tmp/.test(url) || process.env.PGSSL === 'off' ? undefined : { rejectUnauthorized: false },
-      max: 10,
-    });
+    const pool = new pg.Pool({ connectionString: url, ssl: wantsSsl(url), max: 10 });
     return {
       kind: 'postgres',
       query: (sql, params) => pool.query(sql, params as unknown[]) as any,

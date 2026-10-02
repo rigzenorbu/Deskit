@@ -25,3 +25,37 @@ services:
       # language-model planner on:
       # - key: ANTHROPIC_API_KEY
       #   sync: false
+
+  # ---------------------------------------------------------------------------
+  # The new DYESKIT app (dyeskit-platform) — free demo setup.
+  # Serves the API and the web version of the app; the Android/iPhone apps connect to it.
+  # Demo accounts and demo surveys are created on first start (SEED_DEMO).
+  # The free database is deleted by Render after 30 days: demo use only. For real
+  # surveys use the paid setup in dyeskit-platform/render.yaml.
+  - type: web
+    name: dyeskit-platform
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: dyeskit-platform
+    buildCommand: npm ci && npm run build:web
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: NODE_ENV
+        value: production
+      - key: SEED_DEMO
+        value: "true"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dyeskit-platform-db
+          property: connectionString
+
+databases:
+  - name: dyeskit-platform-db
+    plan: free
+    region: singapore
+    databaseName: dyeskit
+    user: dyeskit
