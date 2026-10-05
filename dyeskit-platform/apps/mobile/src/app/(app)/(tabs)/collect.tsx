@@ -1,6 +1,8 @@
-import React from 'react';
-import { View } from 'react-native';
-import { router } from 'expo-router';
+import React, { useCallback, useState } from 'react';
+import { ScrollView, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import Animated, { FadeInDown, ZoomIn } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { FONT, GRADIENTS, RADIUS, SPACE, districtColor, useTheme } from '@/theme';
@@ -8,7 +10,7 @@ import { useMeta } from '@/lib/auth';
 import { discardSurvey, progressOf, reopenSurvey, syncNow, useOutbox } from '@/lib/outbox';
 import { fmtDateTime } from '@/lib/format';
 import { BandPill, Button, Card, Empty, IconButton, Progress, Rise, Row, Screen, SectionTitle, Text, toast } from '@/components/ui';
-import { Hero } from '@/components/scenery';
+import { Hero, Logo, Mountains, PrayerFlags } from '@/components/scenery';
 
 export default function Collect() {
   const meta = useMeta();
@@ -19,7 +21,13 @@ export default function Collect() {
   const waiting = surveys.filter(s => s.status === 'queued' || s.status === 'failed');
   const sent = surveys.filter(s => s.status === 'uploaded');
   const today = sent.filter(s => (s.submittedAt ?? '').slice(0, 10) === new Date().toISOString().slice(0, 10)).length;
+  // the welcome shows every time the Collect button is tapped
+  const [welcome, setWelcome] = useState(true);
+  useFocusEffect(useCallback(() => { setWelcome(true); }, []));
 
+  if (meta.rights.addData && welcome) {
+    return <Welcome onBegin={() => { setWelcome(false); router.push('/new-survey'); }} onSkip={() => setWelcome(false)} />;
+  }
   if (!meta.rights.addData) {
     return <Screen><Empty icon="lock" title="Collecting is not part of your role" sub="Field researchers, supervisors and admins collect surveys." /></Screen>;
   }
@@ -133,5 +141,77 @@ export default function Collect() {
         )) : <Text v="small" muted>Nothing uploaded from this phone yet.</Text>}
       </View>
     </Screen>
+  );
+}
+
+/**
+ * Shown when the Collect button is tapped: thanks the household and encourages them to
+ * take part. Written so the researcher can also turn the phone round and let them read it.
+ */
+const PROMISES = [
+  { icon: 'lock', title: 'Private and safe', text: 'Your name is never shown. Answers appear only as village totals.' },
+  { icon: 'home', title: 'For your own good', text: 'Your answers help bring the right support — water, health, jobs — to your family and village.' },
+  { icon: 'clock', title: 'About 20 minutes', text: 'Simple questions about everyday life, with no right or wrong answers.' },
+  { icon: 'thumbs-up', title: 'Always your choice', text: 'Skip any question, or stop at any time.' },
+] as const;
+
+function Welcome({ onBegin, onSkip }: { onBegin: () => void; onSkip: () => void }) {
+  const { c } = useTheme();
+  const insets = useSafeAreaInsets();
+  const [w, setW] = useState(390);
+  return (
+    <View style={{ flex: 1, backgroundColor: c.bg }} onLayout={e => setW(e.nativeEvent.layout.width)}>
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 120 }} showsVerticalScrollIndicator={false}>
+        <LinearGradient colors={GRADIENTS.sunrise} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+          style={{ paddingTop: insets.top + 6, paddingBottom: 70, borderBottomLeftRadius: 36, borderBottomRightRadius: 36, overflow: 'hidden' }}>
+          <PrayerFlags width={w} count={15} />
+          <View style={{ position: 'absolute', bottom: 0, left: 0 }}><Mountains width={w} height={110} /></View>
+          <View style={{ alignItems: 'center', paddingHorizontal: 24, paddingTop: 14, position: 'relative', zIndex: 1 }}>
+            <Animated.View entering={ZoomIn.duration(550)}><Logo size={72} /></Animated.View>
+            <Animated.View entering={FadeInDown.delay(150).duration(500)} style={{ alignItems: 'center' }}>
+              <Text v="display" color="#fff" center style={{ marginTop: 14 }}>Julley! 🙏</Text>
+              <Text v="h2" color="#fff" center style={{ marginTop: 6 }}>Your voice shapes your village</Text>
+              <Text v="body" color="rgba(255,255,255,0.92)" center style={{ marginTop: 10, maxWidth: 420, lineHeight: 23 }}>
+                Thank you for welcoming us. Kindly share a little about your household — it is for your own good,
+                and for the good of your family and your neighbours.
+              </Text>
+            </Animated.View>
+          </View>
+        </LinearGradient>
+
+        <View style={{ paddingHorizontal: SPACE.lg, marginTop: -40, width: '100%', maxWidth: 640, alignSelf: 'center' }}>
+          <Animated.View entering={FadeInDown.delay(250).duration(500)}>
+            <Card style={{ padding: SPACE.xl }}>
+              <Text v="h3" center>Why your answers matter</Text>
+              <Text v="small" muted center style={{ marginTop: 6, lineHeight: 20 }}>
+                Every household that takes part helps Ladakh see clearly what is working and what needs care.
+                Together, your answers become a voice that planners and leaders can hear.
+              </Text>
+              <View style={{ marginTop: SPACE.lg, gap: 14 }}>
+                {PROMISES.map((p, i) => (
+                  <Animated.View key={p.title} entering={FadeInDown.delay(350 + i * 90).duration(450)}>
+                    <Row gap={12} style={{ alignItems: 'flex-start' }}>
+                      <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: c.apricot + '22', alignItems: 'center', justifyContent: 'center' }}>
+                        <Feather name={p.icon} size={18} color={c.apricot} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text v="h3">{p.title}</Text>
+                        <Text v="small" muted style={{ marginTop: 2 }}>{p.text}</Text>
+                      </View>
+                    </Row>
+                  </Animated.View>
+                ))}
+              </View>
+            </Card>
+          </Animated.View>
+
+          <Animated.View entering={FadeInDown.delay(750).duration(450)}>
+            <Text v="body" center style={{ marginTop: SPACE.xl, fontFamily: FONT.semibold }}>Thank you for being part of a healthier, happier Ladakh. 🏔️</Text>
+            <Button title="Begin a household survey" icon="arrow-right" gradient={GRADIENTS.sunrise} onPress={onBegin} style={{ marginTop: SPACE.lg }} />
+            <Button title="See my surveys" kind="ghost" onPress={onSkip} style={{ marginTop: 10 }} />
+          </Animated.View>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
