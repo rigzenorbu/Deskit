@@ -33,7 +33,7 @@ export default function Register() {
         <ScrollView keyboardShouldPersistTaps="handled">
           <Hero compact>
             <Row><IconButton icon="arrow-left" bg="rgba(255,255,255,0.18)" color="#fff" onPress={() => router.back()} /></Row>
-            <Text v="title" color="#fff" style={{ marginTop: 14 }}>Join as a field researcher</Text>
+            <Text v="title" color="#fff" style={{ marginTop: 14 }}>Create your account</Text>
             <Text v="body" color="rgba(255,255,255,0.85)" style={{ marginTop: 4, marginBottom: 30 }}>An admin reviews every registration before it can sign in.</Text>
           </Hero>
           <View style={{ padding: SPACE.lg, width: '100%', maxWidth: 480, alignSelf: 'center' }}>

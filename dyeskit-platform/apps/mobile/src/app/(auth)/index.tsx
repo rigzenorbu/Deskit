@@ -92,7 +92,7 @@ export default function SignIn() {
               ) : null}
               <Button title="Sign in" icon="log-in" loading={busy} onPress={submit} style={{ marginTop: SPACE.lg }} />
               <Row style={{ justifyContent: 'center', marginTop: SPACE.lg }}>
-                <Text v="small" muted>New field researcher?</Text>
+                <Text v="small" muted>New user?</Text>
                 <Pressable onPress={() => router.push('/register')}><Text v="small" color={c.brand} style={{ fontFamily: FONT.bold }}>Register</Text></Pressable>
               </Row>
             </Card>
