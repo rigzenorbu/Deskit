@@ -38,7 +38,15 @@ dyeskit-platform/
 - **Insights** in plain words: priority actions, villages that can learn from each other,
   bright spots — every one a count you can check.
 - **Roles**: Admin, Supervisor, Field Researcher, Analyst, Viewer — the same access rules as the
-  original platform. New researchers register in the app and wait for an admin's approval.
+  original platform — plus **Household member**.
+- **Households can fill in their own survey.** Anyone can register as a household member and sign in
+  straight away. They fill in their own household's survey (one per account — never for another
+  household) and can **edit or delete it at any time**; an edit to a checked survey sends it back for
+  review, and a deleted survey leaves every count at once. They see their own result plus the Ladakh-wide picture — never another
+  household's answers, village names or rankings, insights or exports; districts with fewer than 10
+  surveys show no score. The server enforces this, not only the app. Their surveys are marked
+  *self-reported* (column `source` in the export) and are reviewed like any other.
+  Staff who register choose "Project staff" and wait for an admin's approval.
 
 ## Districts and villages
 

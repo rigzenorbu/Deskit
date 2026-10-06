@@ -20,7 +20,9 @@ function TabBar({ state, navigation }: BottomTabBarProps) {
   const meta = useMeta();
   const { surveys } = useOutbox();
   const waiting = surveys.filter(s => s.status === 'queued' || s.status === 'failed').length;
-  const routes = state.routes.filter(r => r.name !== 'collect' || meta.rights.addData);
+  // household members see only Home, their survey and More
+  const own = meta.rights.read === 'own';
+  const routes = state.routes.filter(r => (r.name !== 'collect' || meta.rights.addData) && !(own && (r.name === 'villages' || r.name === 'insights')));
   return (
     <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingBottom: Math.max(insets.bottom, 10), alignItems: 'center' }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', width: '92%', maxWidth: 560, height: 66, borderRadius: 33,
@@ -47,7 +49,7 @@ function TabBar({ state, navigation }: BottomTabBarProps) {
                     <Text v="caption" color="#fff" style={{ fontSize: 10, fontFamily: FONT.bold }}>{waiting}</Text>
                   </View>
                 ) : null}
-                <Text v="caption" color={focused ? c.brand : c.ink3} style={{ marginTop: 2 }}>Collect</Text>
+                <Text v="caption" color={focused ? c.brand : c.ink3} style={{ marginTop: 2 }}>{own ? 'My survey' : 'Collect'}</Text>
               </Pressable>
             );
           }

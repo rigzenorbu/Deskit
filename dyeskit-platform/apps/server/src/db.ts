@@ -226,6 +226,11 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX audit_at ON audit (at DESC);
   `,
+  /* 2 — household members register and fill in their own survey */ `
+  ALTER TABLE users DROP CONSTRAINT users_role_check;
+  ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin','supervisor','collector','analyst','viewer','respondent'));
+  ALTER TABLE submissions ADD COLUMN source TEXT NOT NULL DEFAULT 'researcher' CHECK (source IN ('researcher','self'));
+  `,
 ];
 
 export async function migrate(db: Db) {

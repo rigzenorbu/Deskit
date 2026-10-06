@@ -13,8 +13,14 @@ import { Badge, Button, Card, ErrorBox, Loading, Rise, Row, Screen, SectionTitle
 import { BarList, Columns, Radar, Ring, ShareBar, TrendChart } from '@/components/charts';
 import { Hero, Logo } from '@/components/scenery';
 import { FilterBar } from '@/components/pickers';
+import { HouseholdHome } from '@/components/household';
 
 export default function Home() {
+  const meta = useMeta();
+  return meta.rights.read === 'own' ? <HouseholdHome /> : <StaffHome />;
+}
+
+function StaffHome() {
   const meta = useMeta();
   const { offline } = useAuth();
   const { c } = useTheme();

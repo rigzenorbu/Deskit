@@ -1,15 +1,17 @@
 import React, { useCallback, useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
+import { useQuery } from '@tanstack/react-query';
 import Animated, { FadeInDown, ZoomIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { FONT, GRADIENTS, RADIUS, SPACE, districtColor, useTheme } from '@/theme';
 import { useMeta } from '@/lib/auth';
+import { api } from '@/lib/api';
 import { discardSurvey, progressOf, reopenSurvey, syncNow, useOutbox } from '@/lib/outbox';
 import { fmtDateTime } from '@/lib/format';
-import { BandPill, Button, Card, Empty, IconButton, Progress, Rise, Row, Screen, SectionTitle, Text, toast } from '@/components/ui';
+import { BandPill, Button, Card, Empty, IconButton, Loading, Progress, Rise, Row, Screen, SectionTitle, Text, toast } from '@/components/ui';
 import { Hero, Logo, Mountains, PrayerFlags } from '@/components/scenery';
 
 export default function Collect() {
@@ -25,6 +27,8 @@ export default function Collect() {
   const [welcome, setWelcome] = useState(true);
   useFocusEffect(useCallback(() => { setWelcome(true); }, []));
 
+  const own = meta.rights.read === 'own';
+  if (own) return <HouseholdSurvey />;
   if (meta.rights.addData && welcome) {
     return <Welcome onBegin={() => { setWelcome(false); router.push('/new-survey'); }} onSkip={() => setWelcome(false)} />;
   }
@@ -155,7 +159,45 @@ const PROMISES = [
   { icon: 'thumbs-up', title: 'Always your choice', text: 'Skip any question, or stop at any time.' },
 ] as const;
 
-function Welcome({ onBegin, onSkip }: { onBegin: () => void; onSkip: () => void }) {
+/**
+ * The centre button for household members: the welcome, then their one survey — or, once
+ * it has been sent, a thank-you.
+ */
+function HouseholdSurvey() {
+  const { c } = useTheme();
+  const { surveys } = useOutbox();
+  const mine = useQuery({ queryKey: ['submissions', 'mine'], queryFn: () => api<{ rows: { id: string; householdCode: string }[] }>('/api/submissions') });
+  const sent = mine.data?.rows[0];
+  const draft = surveys.find(s => s.status === 'draft');
+  const waiting = surveys.find(s => s.status === 'queued');
+  if (mine.isLoading) return <Screen><Loading /></Screen>;
+  if (sent || waiting) {
+    return (
+      <Screen>
+        <View style={{ alignItems: 'center', paddingTop: 80, gap: 12 }}>
+          <View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: c.success + '22', alignItems: 'center', justifyContent: 'center' }}>
+            <Feather name="heart" size={44} color={c.success} />
+          </View>
+          <Text v="title" center>Thank you!</Text>
+          <Text v="body" muted center style={{ maxWidth: 360 }}>
+            {sent ? `Your household’s details have been received (${sent.householdCode}).` : 'Your survey is saved and will send as soon as you are online.'}
+            {' '}Your answers help make Ladakh a better place to live.
+          </Text>
+          {sent ? <Button title="See your answers and score" icon="file-text" onPress={() => router.push(`/submission/${sent.id}`)} style={{ marginTop: SPACE.lg, alignSelf: 'stretch' }} /> : null}
+          <Button title="Back to home" kind="ghost" onPress={() => router.navigate('/')} style={{ alignSelf: 'stretch' }} />
+        </View>
+      </Screen>
+    );
+  }
+  return (
+    <Welcome begin={draft ? 'Continue my survey' : 'Start my survey'} skip="Back to home"
+      onBegin={() => router.push(draft ? `/survey/${draft.id}` : '/new-survey')} onSkip={() => router.navigate('/')} />
+  );
+}
+
+function Welcome({ onBegin, onSkip, begin = 'Begin a household survey', skip = 'See my surveys' }: {
+  onBegin: () => void; onSkip: () => void; begin?: string; skip?: string;
+}) {
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
   const [w, setW] = useState(390);
@@ -207,8 +249,8 @@ function Welcome({ onBegin, onSkip }: { onBegin: () => void; onSkip: () => void 
 
           <Animated.View entering={FadeInDown.delay(750).duration(450)}>
             <Text v="body" center style={{ marginTop: SPACE.xl, fontFamily: FONT.semibold }}>Thank you for being part of a healthier, happier Ladakh. 🏔️</Text>
-            <Button title="Begin a household survey" icon="arrow-right" gradient={GRADIENTS.sunrise} onPress={onBegin} style={{ marginTop: SPACE.lg }} />
-            <Button title="See my surveys" kind="ghost" onPress={onSkip} style={{ marginTop: 10 }} />
+            <Button title={begin} icon="arrow-right" gradient={GRADIENTS.sunrise} onPress={onBegin} style={{ marginTop: SPACE.lg }} />
+            <Button title={skip} kind="ghost" onPress={onSkip} style={{ marginTop: 10 }} />
           </Animated.View>
         </View>
       </ScrollView>

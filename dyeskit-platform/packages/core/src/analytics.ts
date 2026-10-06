@@ -190,6 +190,35 @@ export function computeDashboard(rows: SurveyRow[], villagesInView: VillageInfo[
 
 export type Dashboard = ReturnType<typeof computeDashboard>;
 
+/** Below this many surveys a district's numbers are hidden from household members. */
+export const PUBLIC_MIN_SURVEYS = 10;
+
+/**
+ * The overall picture for household members: Ladakh-wide numbers only. No village is named,
+ * there are no breakdowns by gender, religion or other groups, no data-quality details, and a
+ * district with fewer than PUBLIC_MIN_SURVEYS surveys shows no score — so no small group of
+ * households can be singled out.
+ */
+export function publicDashboard(d: Dashboard): Dashboard {
+  const hide = <T extends { n: number }>(x: T) => (x.n >= PUBLIC_MIN_SURVEYS ? x : {
+    ...x, score: null, band: null, bandLabel: 'Not enough surveys yet',
+    dims: Object.fromEntries(DIMENSIONS.map(dim => [dim.id, null])) as Record<DimensionId, null>,
+    bands: [], flags: [],
+  });
+  return {
+    ...d,
+    overall: { ...d.overall, coverage: null },
+    baseline: null,
+    districts: d.districts.map(x => ({ ...hide(x), villagesSurveyed: 0 })),
+    villages: [],
+    trend: d.trend.filter(t => t.surveys >= PUBLIC_MIN_SURVEYS),
+    groups: { gender: [], age: [], religion: [], occupation: [], education: [], family: [], housing: [], size: [] },
+    signals: [],
+    quality: { total: d.quality.total, byStatus: [], notEnoughAnswers: 0, shortInterviews: 0, noBmi: 0 },
+    headline: { ...d.headline, villagesSurveyed: 0, villagesInView: 0 },
+  };
+}
+
 /** Insights for the rows in view, grouped by village. */
 export function computeInsights(rows: SurveyRow[], villages: VillageInfo[]) {
   const ids = new Set(rows.map(r => r.villageId));

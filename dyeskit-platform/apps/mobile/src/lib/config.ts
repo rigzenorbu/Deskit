@@ -20,10 +20,10 @@ export async function setServerUrl(url: string | null) {
 }
 export function serverUrl() {
   if (override) return override;
-  if (BUILT_IN) return BUILT_IN;
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    // the Expo dev server runs on 8081; the API on 4000
+    // the web version always talks to the server it was loaded from (EXPO_PUBLIC_API_URL is for
+    // phones); under the Expo dev server (port 8081) that is the API on port 4000
     return window.location.port === '8081' ? `${window.location.protocol}//${window.location.hostname}:4000` : window.location.origin;
   }
-  return 'http://localhost:4000';
+  return BUILT_IN || 'http://localhost:4000';
 }

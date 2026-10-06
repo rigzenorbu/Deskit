@@ -18,7 +18,8 @@ export default function NewSurvey() {
   const mine = scope ? meta.villages.filter(v => scope.includes(v.id)) : [];
   const [village, setVillage] = useState<VillageMeta | null>(mine.length === 1 ? mine[0] : null);
   const [picking, setPicking] = useState(false);
-  const [head, setHead] = useState('');
+  const own = meta.rights.read === 'own';   // a household member filling in their own survey
+  const [head, setHead] = useState(own ? meta.user.name : '');
   const [phone, setPhone] = useState('');
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -34,7 +35,7 @@ export default function NewSurvey() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
-      <TopBar title="New household survey" sub="Step 1 of 2 · household and consent" />
+      <TopBar title={own ? 'Your household survey' : 'New household survey'} sub={own ? 'Step 1 of 2 · where you live, and your agreement' : 'Step 1 of 2 · household and consent'} />
       <Screen>
         {scope && !mine.length ? (
           <Card style={{ borderLeftWidth: 4, borderLeftColor: c.warning, marginBottom: SPACE.lg }}>
@@ -43,7 +44,7 @@ export default function NewSurvey() {
           </Card>
         ) : null}
 
-        <Text v="label" muted style={{ marginBottom: 8 }}>Village</Text>
+        <Text v="label" muted style={{ marginBottom: 8 }}>{own ? 'Your village' : 'Village'}</Text>
         <Pressable onPress={() => { tap(); setPicking(true); }}>
           <Card style={{ borderWidth: 2, borderColor: village ? districtColor(village.district) : c.line }}>
             {village ? (
@@ -76,19 +77,19 @@ export default function NewSurvey() {
         ) : null}
 
         <View style={{ gap: 14, marginTop: SPACE.xl }}>
-          <Input label="Household head (private — never shown to analysts)" icon="user" value={head} onChangeText={setHead} placeholder="Optional" />
+          <Input label={own ? 'Head of your household (private)' : 'Household head (private — never shown to analysts)'} icon="user" value={head} onChangeText={setHead} placeholder="Optional" />
           <Input label="Phone (private, optional)" icon="phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="+91…" />
         </View>
 
         <Card style={{ marginTop: SPACE.xl, backgroundColor: c.surface2 }}>
-          <Row gap={8}><Feather name="message-circle" size={18} color={c.brand} /><Text v="h3">Read aloud before starting</Text></Row>
+          <Row gap={8}><Feather name="message-circle" size={18} color={c.brand} /><Text v="h3">{own ? 'Before you start, please read' : 'Read aloud before starting'}</Text></Row>
           <Text v="body" muted style={{ marginTop: 10, lineHeight: 23 }}>{meta.questionnaire.consent}</Text>
         </Card>
         <Pressable onPress={() => { tap(); setConsent(x => !x); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: SPACE.lg, padding: 4 }}>
           <View style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 2, borderColor: consent ? c.success : c.ink3, backgroundColor: consent ? c.success : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
             {consent ? <Feather name="check" size={18} color="#fff" /> : null}
           </View>
-          <Text v="h3" style={{ flex: 1 }}>The respondent agreed to take part</Text>
+          <Text v="h3" style={{ flex: 1 }}>{own ? 'I agree to take part' : 'The respondent agreed to take part'}</Text>
         </Pressable>
 
         <Button title="Begin survey" icon="play" loading={busy} disabled={!village || !consent} onPress={begin} style={{ marginTop: SPACE.xl }} />

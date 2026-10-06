@@ -61,8 +61,8 @@ test('the official village list is in the database, per district', async () => {
   assert.deepEqual(await syncVillages(db), { added: 0, archived: [] });
 });
 
-test('registration waits for approval', async () => {
-  const r = await call('POST', '/api/auth/register', undefined, { name: 'New Person', email: 'new@t.org', password: 'Secret123' });
+test('staff registration waits for approval', async () => {
+  const r = await call('POST', '/api/auth/register', undefined, { name: 'New Person', email: 'new@t.org', password: 'Secret123', kind: 'staff' });
   assert.equal(r.status, 200);
   assert.equal((await call('POST', '/api/auth/login', undefined, { email: 'new@t.org', password: 'Secret123' })).status, 403);
   const users = (await call('GET', '/api/users', 'admin')).body.rows;
@@ -161,4 +161,85 @@ test('an account can be deleted by its owner', async () => {
   assert.equal((await call('DELETE', '/api/me', 'temp', { password: 'Passw0rd!' })).status, 200);
   assert.equal((await call('GET', '/api/me', 'temp')).status, 401);
   assert.equal((await call('POST', '/api/auth/login', undefined, { email: 'v@t.org', password: 'Passw0rd!' })).status, 401);
+});
+
+/* ---------------------------------------------------------- household members */
+test('household members sign in at once; staff registrations wait for approval', async () => {
+  const hh = await call('POST', '/api/auth/register', undefined, { name: 'Tashi Angmo', email: 'tashi@t.org', password: 'Julley123', kind: 'household' });
+  assert.equal(hh.body.active, true);
+  const login = await call('POST', '/api/auth/login', undefined, { email: 'tashi@t.org', password: 'Julley123' });
+  assert.equal(login.status, 200);
+  assert.equal(login.body.user.role, 'respondent');
+  tokens.household = login.body.token;
+  const staff = await call('POST', '/api/auth/register', undefined, { name: 'Staff Person', email: 'staff@t.org', password: 'Julley123', kind: 'staff' });
+  assert.equal(staff.body.active, false);
+  assert.equal((await call('POST', '/api/auth/login', undefined, { email: 'staff@t.org', password: 'Julley123' })).status, 403);
+});
+
+test('a household member submits one survey, for any village, marked self-reported', async () => {
+  const padum = await villageId('zanskar', 'PDM');
+  const r = (await call('POST', '/api/sync', 'household', { surveys: [{ client_id: randomUUID(), village_id: padum, consent: true, answers: fullAnswers }] })).body.results[0];
+  assert.equal(r.ok, true);
+  assert.match(r.household_code, /^Z_PDM_\d{3}$/);
+  const second = (await call('POST', '/api/sync', 'household', { surveys: [{ client_id: randomUUID(), village_id: padum, consent: true, answers: fullAnswers }] })).body.results[0];
+  assert.equal(second.ok, false);
+  const mine = (await call('GET', '/api/submissions', 'household')).body;
+  assert.equal(mine.total, 1);
+  assert.equal(mine.rows[0].source, 'self');
+  assert.equal(mine.rows[0].householdCode, r.household_code);   // their own code, not masked
+  const detail = (await call('GET', `/api/submissions/${mine.rows[0].id}`, 'household')).body;
+  assert.equal(detail.canEdit, true);
+  assert.equal(detail.canReview, false);
+  assert.ok(String((await call('GET', '/api/export.csv', 'admin')).body).includes(',self,'));
+});
+
+test("household members cannot see anyone else's data", async () => {
+  const others = (await call('GET', '/api/submissions', 'admin')).body.rows.filter((r: any) => r.source !== 'self');
+  assert.ok(others.length > 0);
+  assert.equal((await call('GET', `/api/submissions/${others[0].id}`, 'household')).status, 403);
+  assert.equal((await call('GET', '/api/insights', 'household')).status, 403);
+  assert.equal((await call('GET', `/api/notes?village_id=${others[0].villageId}`, 'household')).status, 403);
+  assert.equal((await call('POST', '/api/notes', 'household', { village_id: others[0].villageId, note: 'x' })).status, 403);
+  assert.equal((await call('GET', '/api/export.csv', 'household')).status, 403);
+  assert.equal((await call('GET', '/api/users', 'household')).status, 403);
+  assert.equal((await call('POST', `/api/submissions/${others[0].id}/review`, 'household', { status: 'approved' })).status, 403);
+  assert.deepEqual((await call('GET', '/api/meta', 'household')).body.collectors, []);
+});
+
+test('the household dashboard is Ladakh-wide only: no villages, no groups, small districts hidden', async () => {
+  const d = (await call('GET', '/api/dashboard?district=leh&village_id=1', 'household')).body;
+  const all = (await call('GET', '/api/dashboard', 'admin')).body;
+  assert.equal(d.overall.n, all.overall.n);             // filters are ignored: always the whole picture
+  assert.deepEqual(d.villages, []);
+  assert.deepEqual(d.groups.gender, []);
+  assert.equal(d.overall.coverage, null);
+  assert.ok(d.districts.every((x: any) => x.n >= 10 || x.score === null));
+  assert.equal(d.headline.villagesSurveyed, 0);
+});
+
+test('a household member can edit their survey at any time, and delete it to start again', async () => {
+  const mine = (await call('GET', '/api/submissions', 'household')).body.rows[0];
+  // a supervisor approves it…
+  assert.equal((await call('POST', `/api/submissions/${mine.id}/review`, 'supervisor', { status: 'approved' })).status, 200);
+  // …the household can still change it, without giving a reason, and it goes back for review
+  const edit = await call('PATCH', `/api/submissions/${mine.id}`, 'household', { answers: { F10: 'no' } });
+  assert.equal(edit.status, 200);
+  const after = (await call('GET', `/api/submissions/${mine.id}`, 'household')).body;
+  assert.equal(after.answers.F10, 'no');
+  assert.equal(after.submission.status, 'submitted');
+  assert.equal(after.history[0].reason, 'Updated by the household');
+  assert.equal(after.canDelete, true);
+
+  // they cannot delete anyone else's survey
+  const other = (await call('GET', '/api/submissions', 'admin')).body.rows.find((r: any) => r.source !== 'self');
+  assert.equal((await call('DELETE', `/api/submissions/${other.id}`, 'household', {})).status, 403);
+
+  // deleting their own takes it out of every count, and lets them fill it in again
+  const before = (await call('GET', '/api/dashboard', 'admin')).body.headline.surveys;
+  assert.equal((await call('DELETE', `/api/submissions/${mine.id}`, 'household', {})).status, 200);
+  assert.equal((await call('GET', '/api/dashboard', 'admin')).body.headline.surveys, before - 1);
+  assert.equal((await call('GET', '/api/submissions', 'household')).body.total, 0);
+  assert.equal((await call('PATCH', `/api/submissions/${mine.id}`, 'household', { answers: { F10: 'yes' } })).status, 403);
+  const again = (await call('POST', '/api/sync', 'household', { surveys: [{ client_id: randomUUID(), village_id: await villageId('zanskar', 'PDM'), consent: true, answers: fullAnswers }] })).body.results[0];
+  assert.equal(again.ok, true);
 });

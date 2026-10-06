@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DIMENSIONS, SECTIONS, isShown, scoreHousehold, type Answers, type HouseholdScore } from '@dyeskit/core';
 import { DIM_COLORS, FONT, RADIUS, SPACE, scoreColor, useTheme } from '@/theme';
 import { api } from '@/lib/api';
+import { useMeta } from '@/lib/auth';
 import { answerText, bandLabel, fmtDateTime } from '@/lib/format';
 import { BandPill, Button, Card, ErrorBox, Input, Loading, Row, Screen, SectionTitle, Sheet, StatusBadge, Text, toast } from '@/components/ui';
 import { BarList, Ring } from '@/components/charts';
@@ -23,6 +24,7 @@ interface Detail {
 export default function SubmissionDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { c } = useTheme();
+  const own = useMeta().rights.read === 'own';
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['submission', id], queryFn: () => api<Detail>(`/api/submissions/${id}`) });
   const [editing, setEditing] = useState(false);
@@ -38,13 +40,17 @@ export default function SubmissionDetail() {
     onError: (e: Error) => toast(e.message, 'error'),
   });
   const save = useMutation({
-    mutationFn: () => api(`/api/submissions/${id}`, { method: 'PATCH', body: { answers: changed(), reason } }),
+    mutationFn: (why: string) => api(`/api/submissions/${id}`, { method: 'PATCH', body: { answers: changed(), reason: why } }),
     onSuccess: () => { toast('Correction saved and rescored'); setEditing(false); setSheet(null); setReason(''); refresh(); },
     onError: (e: Error) => toast(e.message, 'error'),
   });
   const remove = useMutation({
     mutationFn: () => api(`/api/submissions/${id}`, { method: 'DELETE', body: { reason: note } }),
-    onSuccess: () => { toast('Moved to the recycle bin'); refresh(); router.back(); },
+    onSuccess: () => {
+      toast(own ? 'Your survey has been deleted' : 'Moved to the recycle bin');
+      refresh();
+      if (own) router.replace('/'); else router.back();
+    },
     onError: (e: Error) => toast(e.message, 'error'),
   });
 
@@ -89,10 +95,12 @@ export default function SubmissionDetail() {
           <Row wrap gap={10} style={{ marginTop: SPACE.md }}>
             {q.data.canReview && s.status !== 'approved' && !editing ? <Button title="Approve" icon="check" small gradient={['#22B07D', '#14A3A8']} onPress={() => review.mutate('approved')} loading={review.isPending} /> : null}
             {q.data.canReview && s.status !== 'rejected' && !editing ? <Button title="Send back" icon="corner-up-left" small kind="secondary" onPress={() => setSheet('reject')} /> : null}
-            {q.data.canEdit && !editing ? <Button title="Correct answers" icon="edit-2" small kind="ghost" onPress={() => { setDraft({ ...answers }); setEditing(true); }} /> : null}
-            {editing ? <Button title="Save correction" icon="save" small onPress={() => Object.keys(changed()).length ? setSheet('save') : toast('Nothing changed')} /> : null}
+            {q.data.canEdit && !editing ? <Button title={own ? 'Edit my answers' : 'Correct answers'} icon="edit-2" small kind={own ? 'secondary' : 'ghost'} onPress={() => { setDraft({ ...answers }); setEditing(true); }} /> : null}
+            {editing ? <Button title="Save correction" icon="save" small onPress={() => !Object.keys(changed()).length ? toast('Nothing changed')
+              // households correcting their own answers are not asked for a reason
+              : own ? save.mutate('Updated by the household') : setSheet('save')} /> : null}
             {editing ? <Button title="Cancel" small kind="ghost" onPress={() => setEditing(false)} /> : null}
-            {q.data.canDelete && !editing ? <Button title="Delete" icon="trash-2" small kind="ghost" onPress={() => setSheet('delete')} /> : null}
+            {q.data.canDelete && !editing ? <Button title={own ? 'Delete my survey' : 'Delete'} icon="trash-2" small kind="ghost" onPress={() => setSheet('delete')} /> : null}
           </Row>
         ) : null}
 
@@ -149,14 +157,22 @@ export default function SubmissionDetail() {
         <Input label="What needs fixing?" value={note} onChangeText={setNote} multiline placeholder="e.g. Weight looks mis-typed; please re-measure" />
       </Sheet>
       <Sheet visible={sheet === 'save'} onClose={() => setSheet(null)} title="Save correction"
-        footer={<Button title="Save and rescore" loading={save.isPending} disabled={!reason.trim()} onPress={() => save.mutate()} />}>
+        footer={<Button title="Save and rescore" loading={save.isPending} disabled={!reason.trim()} onPress={() => save.mutate(reason)} />}>
         <Text v="small" muted style={{ marginBottom: 10 }}>{Object.keys(changed()).length} answer(s) changed. The old values are kept in the history.</Text>
         <Input label="Reason (required)" value={reason} onChangeText={setReason} placeholder="e.g. Corrected after a phone call with the household" />
       </Sheet>
-      <Sheet visible={sheet === 'delete'} onClose={() => setSheet(null)} title="Delete this survey?"
-        footer={<Button title="Move to recycle bin" kind="danger" loading={remove.isPending} disabled={!note.trim()} onPress={() => remove.mutate()} />}>
-        <Text v="small" muted style={{ marginBottom: 10 }}>It stops counting in every score. An admin can restore it from the recycle bin.</Text>
-        <Input label="Reason (required)" value={note} onChangeText={setNote} placeholder="e.g. Duplicate of L_CHL_014" />
+      <Sheet visible={sheet === 'delete'} onClose={() => setSheet(null)} title={own ? 'Delete your survey?' : 'Delete this survey?'}
+        footer={<Button title={own ? 'Yes, delete my survey' : 'Move to recycle bin'} kind="danger" loading={remove.isPending} disabled={!own && !note.trim()} onPress={() => remove.mutate()} />}>
+        {own ? (
+          <Text v="small" muted>
+            Your household’s answers will be removed from every count straight away. You can fill in your survey again afterwards if you wish.
+          </Text>
+        ) : (
+          <>
+            <Text v="small" muted style={{ marginBottom: 10 }}>It stops counting in every score. An admin can restore it from the recycle bin.</Text>
+            <Input label="Reason (required)" value={note} onChangeText={setNote} placeholder="e.g. Duplicate of L_CHL_014" />
+          </>
+        )}
       </Sheet>
     </View>
   );

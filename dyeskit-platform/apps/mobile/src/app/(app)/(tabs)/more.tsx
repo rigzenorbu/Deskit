@@ -26,8 +26,9 @@ export default function More() {
 
   const groups: { title: string; items: Item[] }[] = [
     { title: 'Analysis', items: [
-      { title: 'Explore analysis', sub: 'Compare groups: gender, age, religion, occupation, education…', icon: 'bar-chart-2', color: '#3B8CF0', to: '/explore' },
-      { title: 'Surveys', sub: R.review ? 'Review, approve and correct surveys' : 'Every survey you can see', icon: 'clipboard', color: '#14A3A8', to: '/submissions' },
+      { title: 'My survey', sub: 'Your household’s answers and score', icon: 'home', color: '#F59E4B', to: '/collect', show: R.read === 'own' },
+      { title: 'Explore analysis', sub: 'Compare groups: gender, age, religion, occupation, education…', icon: 'bar-chart-2', color: '#3B8CF0', to: '/explore', show: R.read !== 'own' },
+      { title: 'Surveys', sub: R.review ? 'Review, approve and correct surveys' : 'Every survey you can see', icon: 'clipboard', color: '#14A3A8', to: '/submissions', show: R.read !== 'own' },
       { title: 'How scores work', sub: 'Every point value, in plain words', icon: 'help-circle', color: '#8A63F0', to: '/scoring' },
     ] },
     { title: 'Data', items: [
@@ -41,7 +42,7 @@ export default function More() {
     ] },
     { title: 'Account', items: [
       { title: 'Account & privacy', sub: 'Your details, delete your account', icon: 'user', color: '#4A5470', to: '/account' },
-      { title: 'Sign out', sub: 'Unsent surveys stay on this phone for your next sign-in', icon: 'log-out', color: '#E2554F', onPress: () => signOut() },
+      { title: 'Sign out', sub: R.read === 'own' ? 'You can sign in again any time' : 'Unsent surveys stay on this phone for your next sign-in', icon: 'log-out', color: '#E2554F', onPress: () => signOut() },
     ] },
   ];
 

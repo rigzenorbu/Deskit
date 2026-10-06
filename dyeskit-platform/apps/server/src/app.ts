@@ -6,7 +6,7 @@ import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import {
   BANDS, CONSENT_TEXT, DIMENSIONS, DISTRICTS, ITEMS, QUESTIONNAIRE_VERSION, ROLES, ROLE_RIGHTS, SCORING_VERSION, SECTIONS,
-  computeDashboard, computeInsights, scoreHousehold, type Role,
+  RESPONDENT_SURVEY_LIMIT, computeDashboard, computeInsights, publicDashboard, scoreHousehold, type Role,
 } from '@dyeskit/core';
 import { audit, type Db } from './db';
 import {
@@ -31,7 +31,8 @@ type Q = Record<string, string | undefined>;
 
 export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 5 * 1024 * 1024, trustProxy: true });
-  await app.register(cors, { origin: true });
+  // every method the API uses (the plugin's default leaves out PATCH and DELETE)
+  await app.register(cors, { origin: true, methods: ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE', 'OPTIONS'] });
 
   app.decorateRequest('user', null);
   app.addHook('preHandler', async req => {
@@ -71,17 +72,22 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
   });
 
   app.post('/api/auth/register', async (req, reply) => {
-    const b = (req.body ?? {}) as { name?: string; email?: string; phone?: string; password?: string };
+    const b = (req.body ?? {}) as { name?: string; email?: string; phone?: string; password?: string; kind?: string };
     const name = String(b.name ?? '').trim(), email = String(b.email ?? '').trim().toLowerCase(), password = String(b.password ?? '');
+    // household members can sign in at once; staff wait for an admin
+    const household = b.kind !== 'staff';
     if (!name || !email || !password) return reply.code(400).send({ error: 'Name, email and password are required.' });
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return reply.code(400).send({ error: 'Please enter a valid email address.' });
     if (!passwordOk(password)) return reply.code(400).send({ error: `Password: ${PASSWORD_RULE}` });
     const { rows } = await db.query('SELECT 1 FROM users WHERE lower(email) = $1', [email]);
     if (rows.length) return reply.code(409).send({ error: 'That email is already registered.' });
-    await db.query(`INSERT INTO users (name, email, phone, role, status, password_hash) VALUES ($1,$2,$3,'collector','pending',$4)`,
-      [name, email, b.phone?.trim() || null, hashPassword(password)]);
-    await audit(db, null, 'register', 'user', email, { role: 'collector' });
-    return { ok: true, message: 'Registration received. An admin will review and approve your account.' };
+    const role = household ? 'respondent' : 'collector';
+    await db.query(`INSERT INTO users (name, email, phone, role, status, password_hash) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [name, email, b.phone?.trim() || null, role, household ? 'active' : 'pending', hashPassword(password)]);
+    await audit(db, null, 'register', 'user', email, { role });
+    return household
+      ? { ok: true, active: true, message: 'Your account is ready. Sign in to fill in your household’s details.' }
+      : { ok: true, active: false, message: 'Registration received. An admin will review and approve your account.' };
   });
 
   app.post('/api/auth/logout', async req => {
@@ -118,7 +124,7 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
       `SELECT v.id, v.district, v.code, v.name, v.gazette_name, v.subdivision, v.block, v.households, v.altitude_m, v.official,
               (SELECT count(*)::int FROM submissions s WHERE s.village_id = v.id AND s.deleted_at IS NULL) AS surveys
        FROM villages v WHERE v.archived_at IS NULL ORDER BY v.name`)).rows;
-    const collectors = (await db.query(
+    const collectors = rightsOf(u).read === 'own' ? [] : (await db.query(
       `SELECT id, name FROM users WHERE role IN ('collector','supervisor','admin') AND status='active' AND deleted_at IS NULL ORDER BY name`)).rows;
     return {
       user: u, rights: rightsOf(u), assigned: await assignedVillageIds(db, u.id),
@@ -131,6 +137,11 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
   /* --------------------------------------------------------- analytics */
   app.get('/api/dashboard', async req => {
     const u = signedIn(req);
+    if (rightsOf(u).read === 'own') {
+      // household members: the Ladakh-wide picture only, whatever filters are asked for
+      const rows = applyFilters(await loadRows(db, null), parseFilters({}));
+      return publicDashboard(computeDashboard(rows, await villagesInfo(db, null)));
+    }
     const scope = await scopeOf(db, u);
     const all = await loadRows(db, scope);
     const f = parseFilters(req.query as Q);
@@ -144,6 +155,7 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
 
   app.get('/api/insights', async req => {
     const u = signedIn(req);
+    need(rightsOf(u).read !== 'own', 'Insights are for project staff.');
     const scope = await scopeOf(db, u);
     const rows = applyFilters(await loadRows(db, scope), parseFilters(req.query as Q));
     return computeInsights(rows, await villagesInfo(db, scope));
@@ -155,17 +167,22 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
     const R = rightsOf(u);
     const q = req.query as Q;
     // the list shows every status, rejected included; dashboards leave rejected surveys out
-    const rows = applyFilters(await loadRows(db, await scopeOf(db, u)), parseFilters(q), { allStatuses: true });
+    const rows = applyFilters(await loadRows(db, await scopeOf(db, u)), parseFilters(q), { allStatuses: true })
+      .filter(r => R.read !== 'own' || r.collectorId === u.id);
     const limit = Math.min(500, Number(q.limit) || 100), offset = Number(q.offset) || 0;
     return {
       total: rows.length,
       rows: rows.slice(offset, offset + limit).map(r => ({
-        id: r.id, householdCode: R.pii ? r.householdCode : `HH-${r.id.slice(0, 6)}`, village: r.village, villageId: r.villageId,
+        id: r.id, householdCode: R.pii || r.collectorId === u.id ? r.householdCode : `HH-${r.id.slice(0, 6)}`, village: r.village, villageId: r.villageId,
         district: r.district, status: r.status, submittedAt: r.submittedAt, durationMin: r.durationMin,
-        score: r.score?.score ?? null, band: r.score?.band ?? null, collectorId: r.collectorId,
+        score: r.score?.score ?? null, band: r.score?.band ?? null, collectorId: r.collectorId, source: r.source,
       })),
     };
   });
+
+  /** A household member and their own (not deleted) survey: they may edit or delete it at any time. */
+  const householdOwns = (u: SessionUser, s: Record<string, any>) =>
+    rightsOf(u).read === 'own' && s.collector_id === u.id && !s.deleted_at;
 
   const loadSubmission = async (u: SessionUser, id: string) => {
     const { rows } = await db.query(
@@ -178,6 +195,7 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
     if (!s) throw fail(404, 'Survey not found.');
     const scope = await scopeOf(db, u);
     if (scope && !scope.includes(s.village_id)) throw fail(403, 'This survey is outside your villages.');
+    if (rightsOf(u).read === 'own' && s.collector_id !== u.id) throw fail(403, 'You can only see your own survey.');
     return s;
   };
 
@@ -185,6 +203,7 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
     const u = signedIn(req);
     const R = rightsOf(u);
     const s = await loadSubmission(u, (req.params as { id: string }).id);
+    const pii = R.pii || s.collector_id === u.id;   // people always see what they entered themselves
     const answers = await getAnswers(db, s.id);
     const history = (await db.query(
       `SELECT h.item_id, h.old_value, h.new_value, h.changed_at, h.reason, u.name AS changed_by
@@ -192,14 +211,14 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
     return {
       submission: {
         id: s.id, village: s.village, villageId: s.village_id, district: s.district, status: s.status,
-        householdCode: R.pii ? s.household_code : `HH-${s.id.slice(0, 6)}`, headName: R.pii ? s.head_name : null, phone: R.pii ? s.phone : null,
+        householdCode: pii ? s.household_code : `HH-${s.id.slice(0, 6)}`, headName: pii ? s.head_name : null, phone: pii ? s.phone : null,
         collector: s.collector_name, collectorId: s.collector_id, reviewer: s.reviewer_name, reviewNote: s.review_note,
         startedAt: s.started_at, submittedAt: s.submitted_at, durationMin: s.duration_min, deletedAt: s.deleted_at,
-        questionnaireVersion: s.questionnaire_version,
+        questionnaireVersion: s.questionnaire_version, source: s.source,
       },
       answers, score: scoreHousehold(answers), history,
-      canEdit: R.editAny || (s.collector_id === u.id && s.status !== 'approved'),
-      canReview: R.review, canDelete: R.delete,
+      canEdit: R.editAny || householdOwns(u, s) || (R.read !== 'own' && s.collector_id === u.id && s.status !== 'approved'),
+      canReview: R.review, canDelete: R.delete || householdOwns(u, s),
     };
   });
 
@@ -214,7 +233,8 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
     for (const s of surveys.slice(0, 200)) {
       try {
         if (scope && !scope.includes(Number(s.village_id))) throw fail(403, 'This village is not assigned to you.');
-        results.push({ ok: true, ...(await storeUpload(db, u, s)) });
+        results.push({ ok: true, ...(await storeUpload(db, u, s, R.read === 'own'
+          ? { source: 'self', limit: RESPONDENT_SURVEY_LIMIT } : { source: 'researcher' })) });
       } catch (e) {
         results.push({ ok: false, client_id: s.client_id, error: (e as Error).message });
       }
@@ -226,19 +246,26 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
     const u = signedIn(req);
     const R = rightsOf(u);
     const s = await loadSubmission(u, (req.params as { id: string }).id);
-    need(R.editAny || (s.collector_id === u.id && s.status !== 'approved'), 'You cannot edit this survey.');
+    const household = householdOwns(u, s);
+    // household members only through their own rule (never a deleted survey); researchers until approval
+    need(R.editAny || household || (R.read !== 'own' && s.collector_id === u.id && s.status !== 'approved'), 'You cannot edit this survey.');
     const b = (req.body ?? {}) as { answers?: Record<string, unknown>; reason?: string; headName?: string; phone?: string };
+    if (household && !String(b.reason ?? '').trim()) b.reason = 'Updated by the household';
     if (b.answers && !String(b.reason ?? '').trim()) throw fail(400, 'Please give a reason for the correction.');
     const score = await db.tx(async q => {
       if (b.answers) {
         const known = Object.fromEntries(Object.entries(b.answers).filter(([k]) => ITEMS[k]));
         await saveAnswers(q, s.id, known, u.id, String(b.reason));
       }
-      if (R.pii && (b.headName !== undefined || b.phone !== undefined)) {
+      if ((R.pii || household) && (b.headName !== undefined || b.phone !== undefined)) {
         await q.query('UPDATE households SET head_name = COALESCE($1, head_name), phone = COALESCE($2, phone) WHERE id = $3',
           [b.headName ?? null, b.phone ?? null, s.household_id]);
       }
       await q.query('UPDATE submissions SET updated_at = now() WHERE id=$1', [s.id]);
+      // a household changing a checked survey sends it back for review
+      if (household && s.status !== 'submitted') {
+        await q.query(`UPDATE submissions SET status='submitted', reviewed_by=NULL, reviewed_at=NULL, review_note=NULL WHERE id=$1`, [s.id]);
+      }
       await audit(q, u, 'edit_submission', 'submission', s.id, { items: Object.keys(b.answers ?? {}), reason: b.reason });
       return rescore(q, s.id);
     });
@@ -260,9 +287,10 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
 
   app.delete('/api/submissions/:id', async req => {
     const u = signedIn(req);
-    need(rightsOf(u).delete, 'Only admins can delete surveys.');
     const s = await loadSubmission(u, (req.params as { id: string }).id);
-    const reason = String(((req.body ?? {}) as { reason?: string }).reason ?? '').trim();
+    const household = householdOwns(u, s);
+    need(rightsOf(u).delete || household, 'Only admins can delete surveys.');
+    const reason = String(((req.body ?? {}) as { reason?: string }).reason ?? '').trim() || (household ? 'Deleted by the household' : '');
     if (!reason) throw fail(400, 'Please give a reason.');
     await db.query('UPDATE submissions SET deleted_at=now(), deleted_by=$1, delete_reason=$2 WHERE id=$3', [u.id, reason, s.id]);
     await audit(db, u, 'delete_submission', 'submission', s.id, { reason });
@@ -368,6 +396,7 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
   /* ------------------------------------------------------------- notes */
   app.get('/api/notes', async req => {
     const u = signedIn(req);
+    need(rightsOf(u).read !== 'own', 'Field notes are for project staff.');
     const villageId = Number((req.query as Q).village_id);
     const scope = await scopeOf(db, u);
     if (scope && !scope.includes(villageId)) throw fail(403, 'This village is outside your assignment.');
@@ -378,7 +407,7 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
 
   app.post('/api/notes', async req => {
     const u = signedIn(req);
-    need(rightsOf(u).addData || rightsOf(u).review, 'Your role cannot add field notes.');
+    need((rightsOf(u).addData || rightsOf(u).review) && rightsOf(u).read !== 'own', 'Your role cannot add field notes.');
     const b = (req.body ?? {}) as { village_id?: number; dim?: string; note?: string };
     if (!b.village_id || !String(b.note ?? '').trim()) throw fail(400, 'A village and a note are required.');
     const scope = await scopeOf(db, u);
@@ -399,11 +428,11 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
       const s = v === undefined || v === null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const header = ['survey_id', 'household_code', 'village', 'district', 'status', 'submitted_at', 'duration_min',
+    const header = ['survey_id', 'household_code', 'village', 'district', 'status', 'source', 'submitted_at', 'duration_min',
       'score', 'band', ...DIMENSIONS.map(d => `dim_${d.id}`), ...items.map(i => i.id)];
     const lines = [header.join(',')];
     for (const r of rows) {
-      lines.push([r.id, anon ? '' : r.householdCode, r.village, r.district, r.status, r.submittedAt, r.durationMin,
+      lines.push([r.id, anon ? '' : r.householdCode, r.village, r.district, r.status, r.source, r.submittedAt, r.durationMin,
         r.score?.score, r.score?.band, ...DIMENSIONS.map(d => r.score?.dims[d.id]?.score),
         ...items.map(i => r.answers[i.id])].map(cell).join(','));
     }

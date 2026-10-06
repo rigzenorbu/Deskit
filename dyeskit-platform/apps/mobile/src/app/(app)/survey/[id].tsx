@@ -52,7 +52,7 @@ export default function SurveyScreen() {
   if (!survey || !village) {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: c.bg }}><Text v="h3">This survey is not on this phone.</Text><Button title="Back" onPress={() => router.back()} style={{ marginTop: 16 }} /></View>;
   }
-  if (done) return <Celebration result={done} villageName={village.name} score={score.score} band={score.band} />;
+  if (done) return <Celebration result={done} villageName={village.name} score={score.score} band={score.band} own={meta.rights.read === 'own'} />;
 
   const isReview = step === SECTIONS.length;
   const section: Section | null = isReview ? null : SECTIONS[step];
@@ -206,7 +206,9 @@ function Summit({ progress }: { progress: number }) {
 }
 
 /** Falling prayer-flag confetti and the result. */
-function Celebration({ result, villageName, score, band }: { result: { code?: string; offline: boolean; error?: string }; villageName: string; score: number | null; band: number | null }) {
+function Celebration({ result, villageName, score, band, own }: {
+  result: { code?: string; offline: boolean; error?: string }; villageName: string; score: number | null; band: number | null; own: boolean;
+}) {
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
   const { width, height } = Dimensions.get('window');
@@ -232,7 +234,9 @@ function Celebration({ result, villageName, score, band }: { result: { code?: st
         <Animated.View entering={FadeInDown.delay(200)} style={{ alignItems: 'center' }}>
           <Text v="title" center style={{ marginTop: 22 }}>{result.error ? 'Not accepted yet' : result.offline ? 'Saved on this phone' : 'Survey uploaded!'}</Text>
           <Text v="body" muted center style={{ marginTop: 8, maxWidth: 340 }}>
-            {result.error ? result.error : result.offline ? `${villageName}: it will upload by itself as soon as there is signal.` : `Thank you — ${villageName} is one household closer to a full picture.`}
+            {result.error ? result.error : result.offline ? `${villageName}: it will upload by itself as soon as there is signal.`
+              : own ? 'Thank you for sharing your household’s details. Your voice helps shape a better Ladakh.'
+              : `Thank you — ${villageName} is one household closer to a full picture.`}
           </Text>
           {result.code ? (
             <View style={{ marginTop: 22, backgroundColor: c.brandSoft, borderRadius: RADIUS.lg, paddingVertical: 14, paddingHorizontal: 26, alignItems: 'center' }}>
@@ -248,8 +252,14 @@ function Celebration({ result, villageName, score, band }: { result: { code?: st
         </Animated.View>
       </View>
       <View style={{ padding: SPACE.lg, paddingBottom: insets.bottom + SPACE.lg, gap: 10, maxWidth: 520, width: '100%', alignSelf: 'center' }}>
-        <Button title="Next household" icon="plus" onPress={() => router.replace('/new-survey')} />
-        <Button title="Done" kind="ghost" onPress={() => router.replace('/collect')} />
+        {own ? (
+          <Button title="Done" icon="home" onPress={() => router.replace('/')} />
+        ) : (
+          <>
+            <Button title="Next household" icon="plus" onPress={() => router.replace('/new-survey')} />
+            <Button title="Done" kind="ghost" onPress={() => router.replace('/collect')} />
+          </>
+        )}
       </View>
     </View>
   );

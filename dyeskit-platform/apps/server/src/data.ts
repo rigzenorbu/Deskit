@@ -135,23 +135,28 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * submission id, so a retry after a dropped connection returns the same household code
  * instead of creating a duplicate.
  */
-export async function storeUpload(db: Db, user: { id: number; name: string }, s: UploadedSurvey) {
+export async function storeUpload(db: Db, user: { id: number; name: string }, s: UploadedSurvey,
+  opts: { source?: 'researcher' | 'self'; limit?: number } = {}) {
   if (!UUID.test(String(s.client_id))) throw Object.assign(new Error('Bad survey id'), { statusCode: 400 });
   if (!s.consent) throw Object.assign(new Error('Consent is required'), { statusCode: 400 });
   const dup = await db.query<{ code: string; score: number | null; band: number | null }>(
     `SELECT h.code, sc.score, sc.band FROM submissions su JOIN households h ON h.id = su.household_id
      LEFT JOIN scores sc ON sc.submission_id = su.id WHERE su.id = $1`, [s.client_id]);
   if (dup.rows.length) return { client_id: s.client_id, household_code: dup.rows[0].code, score: dup.rows[0].score, band: dup.rows[0].band, duplicate: true };
+  if (opts.limit !== undefined) {
+    const mine = await db.query<{ n: number }>('SELECT count(*)::int AS n FROM submissions WHERE collector_id=$1 AND deleted_at IS NULL', [user.id]);
+    if (mine.rows[0].n >= opts.limit) throw Object.assign(new Error('Your household’s survey has already been received — thank you!'), { statusCode: 409 });
+  }
 
   return db.tx(async q => {
     const { seq, code } = await nextHouseholdCode(q, Number(s.village_id));
     const hh = await q.query<{ id: number }>(
       'INSERT INTO households (code, village_id, seq, head_name, phone, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
       [code, s.village_id, seq, s.head_name || null, s.phone || null, user.id]);
-    await q.query(`INSERT INTO submissions (id, household_id, village_id, collector_id, questionnaire_version, status, consent, started_at, submitted_at, duration_min)
-      VALUES ($1,$2,$3,$4,$5,'submitted',true,$6,$7,$8)`,
+    await q.query(`INSERT INTO submissions (id, household_id, village_id, collector_id, questionnaire_version, status, consent, started_at, submitted_at, duration_min, source)
+      VALUES ($1,$2,$3,$4,$5,'submitted',true,$6,$7,$8,$9)`,
       [s.client_id, hh.rows[0].id, s.village_id, user.id, QUESTIONNAIRE_VERSION, s.started_at || null, s.submitted_at || new Date().toISOString(),
-        s.duration_min ?? null]);
+        s.duration_min ?? null, opts.source ?? 'researcher']);
     await saveAnswers(q, s.client_id, s.answers || {}, user.id, null, true);
     const score = await rescore(q, s.client_id);
     await audit(q, user, 'upload_survey', 'submission', s.client_id, { household: code });
@@ -190,7 +195,7 @@ export function parseFilters(q: Record<string, string | undefined>): Filters {
   };
 }
 
-export interface LoadedRow extends SurveyRow { householdCode: string; collectorId: number | null; startedAt: string | null }
+export interface LoadedRow extends SurveyRow { householdCode: string; collectorId: number | null; startedAt: string | null; source: string }
 
 const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : d ? String(d) : null);
 
@@ -198,7 +203,7 @@ const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : d ? String(d)
 export async function loadRows(db: Queryable, scope: number[] | null, includeDeleted = false): Promise<LoadedRow[]> {
   const { rows } = await db.query(
     `SELECT su.id, su.village_id, v.name AS village, v.district, v.households, su.submitted_at, su.started_at, su.duration_min,
-            su.status, su.collector_id, h.code AS household_code, sc.detail AS score,
+            su.status, su.collector_id, su.source, h.code AS household_code, sc.detail AS score,
             COALESCE((SELECT jsonb_object_agg(a.item_id, a.value) FROM answers a WHERE a.submission_id = su.id), '{}'::jsonb) AS answers
      FROM submissions su JOIN villages v ON v.id = su.village_id JOIN households h ON h.id = su.household_id
      LEFT JOIN scores sc ON sc.submission_id = su.id
@@ -207,7 +212,7 @@ export async function loadRows(db: Queryable, scope: number[] | null, includeDel
   return rows.map(r => ({
     id: r.id, villageId: r.village_id, village: r.village, district: r.district, households: r.households,
     submittedAt: iso(r.submitted_at), startedAt: iso(r.started_at), durationMin: r.duration_min, status: r.status,
-    collectorId: r.collector_id, householdCode: r.household_code,
+    collectorId: r.collector_id, householdCode: r.household_code, source: r.source,
     answers: r.answers as Answers, score: (r.score as HouseholdScore) ?? null,
   }));
 }
