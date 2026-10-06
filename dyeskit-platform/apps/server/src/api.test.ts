@@ -243,3 +243,30 @@ test('a household member can edit their survey at any time, and delete it to sta
   const again = (await call('POST', '/api/sync', 'household', { surveys: [{ client_id: randomUUID(), village_id: await villageId('zanskar', 'PDM'), consent: true, answers: fullAnswers }] })).body.results[0];
   assert.equal(again.ok, true);
 });
+
+test('admins can delete a user; the person is erased but their surveys stay', async () => {
+  const surveysBefore = (await call('GET', '/api/dashboard', 'admin')).body.headline.surveys;
+  const users = (await call('GET', '/api/users', 'admin')).body.rows;
+  const collector = users.find((x: any) => x.email === 'c@t.org');
+  const me = users.find((x: any) => x.email === 'a@t.org');
+  assert.equal((await call('DELETE', `/api/users/${collector.id}`, 'supervisor')).status, 403);
+  assert.equal((await call('DELETE', `/api/users/${me.id}`, 'admin')).status, 400);          // not yourself
+  assert.equal((await call('DELETE', `/api/users/${collector.id}`, 'admin')).status, 200);
+  const after = (await call('GET', '/api/users', 'admin')).body.rows;
+  assert.ok(!after.some((x: any) => x.id === collector.id));                              // gone from the list
+  assert.equal((await call('GET', '/api/me', 'collector')).status, 401);                    // signed out everywhere
+  assert.equal((await call('POST', '/api/auth/login', undefined, { email: 'c@t.org', password: 'Passw0rd!' })).status, 401);
+  assert.equal((await call('GET', '/api/dashboard', 'admin')).body.headline.surveys, surveysBefore);   // surveys stay
+  // the email is free to register again
+  assert.equal((await call('POST', '/api/auth/register', undefined, { name: 'Back Again', email: 'c@t.org', password: 'Passw0rd1', kind: 'staff' })).status, 200);
+  const audit = (await call('GET', '/api/audit', 'admin')).body.rows;
+  assert.equal(audit[audit.findIndex((a: any) => a.action === 'delete_user')].entity_id, String(collector.id));
+});
+
+test('an admin can delete another admin, never themselves', async () => {
+  const r = await call('POST', '/api/users', 'admin', { name: 'Second Admin', email: 'a2@t.org', role: 'admin', password: 'Passw0rd!' });
+  tokens.admin2 = (await call('POST', '/api/auth/login', undefined, { email: 'a2@t.org', password: 'Passw0rd!' })).body.token;
+  const first = (await call('GET', '/api/users', 'admin')).body.rows.find((x: any) => x.email === 'a@t.org');
+  assert.equal((await call('DELETE', `/api/users/${first.id}`, 'admin2')).status, 200);    // two admins: allowed
+  assert.equal((await call('DELETE', `/api/users/${r.body.id}`, 'admin2')).status, 400);   // yourself
+});

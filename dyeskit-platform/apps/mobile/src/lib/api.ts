@@ -17,7 +17,8 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   try {
     res = await fetch(serverUrl() + path, {
       method: opts.method ?? 'GET',
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      // only label a body that exists: the server refuses an empty request labelled as JSON
+      headers: { ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
     });
   } catch {

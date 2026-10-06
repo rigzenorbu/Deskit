@@ -55,3 +55,15 @@ export async function assignedVillageIds(db: Queryable, userId: number) {
 export async function scopeOf(db: Queryable, user: SessionUser) {
   return rightsOf(user).read === 'assigned' ? assignedVillageIds(db, user.id) : null;
 }
+
+/**
+ * Erase a person: name, email and phone are removed, they are signed out everywhere and lose
+ * their villages. Their surveys stay (unlinked from them), so village scores do not change.
+ * The freed email can register again. Used by "Delete my account" and by admins.
+ */
+export async function eraseUser(q: Queryable, id: number) {
+  await q.query(`UPDATE users SET name='Deleted user', email=$1, phone=NULL, status='disabled', deleted_at=now(), password_hash='deleted' WHERE id=$2`,
+    [`deleted-${id}@deleted.invalid`, id]);
+  await q.query('DELETE FROM sessions WHERE user_id=$1', [id]);
+  await q.query('DELETE FROM assignments WHERE user_id=$1', [id]);
+}

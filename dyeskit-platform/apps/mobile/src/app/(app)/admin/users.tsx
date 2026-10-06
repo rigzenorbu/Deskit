@@ -22,6 +22,12 @@ export default function Users() {
   const [assign, setAssign] = useState<U | null>(null);
   const [adding, setAdding] = useState(false);
   const [search, setSearch] = useState('');
+  const [removing, setRemoving] = useState<U | null>(null);
+  const remove = useMutation({
+    mutationFn: (id: number) => api(`/api/users/${id}`, { method: 'DELETE' }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); toast('User deleted'); setRemoving(null); setEdit(null); },
+    onError: (e: Error) => toast(e.message, 'error'),
+  });
   const patch = useMutation({
     mutationFn: ({ id, body }: { id: number; body: object }) => api(`/api/users/${id}`, { method: 'PATCH', body }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); toast('Saved'); },
@@ -49,6 +55,7 @@ export default function Users() {
                   <Button title="Approve" small icon="check" gradient={['#22B07D', '#14A3A8']} onPress={() => patch.mutate({ id: u.id, body: { status: 'active' } })} />
                   <Button title="Approve & assign villages" small kind="secondary" onPress={() => { patch.mutate({ id: u.id, body: { status: 'active' } }); setAssign(u); }} />
                   <Button title="Decline" small kind="ghost" onPress={() => patch.mutate({ id: u.id, body: { status: 'disabled' } })} />
+                  <Button title="Delete" small kind="ghost" icon="trash-2" onPress={() => setRemoving(u)} />
                 </Row>
               </Card>
             ))}
@@ -101,10 +108,31 @@ export default function Users() {
               ) : <Text v="caption" faint>You cannot change your own role or status.</Text>}
             </Row>
             <ResetPassword onSave={pw => patch.mutate({ id: edit.id, body: { password: pw } })} />
+            {edit.id !== meta.user.id ? (
+              <View style={{ marginTop: SPACE.xl, paddingTop: SPACE.lg, borderTopWidth: 1, borderTopColor: c.line }}>
+                <Text v="label" color={c.danger} style={{ marginBottom: 6 }}>Delete this user</Text>
+                <Text v="small" muted style={{ marginBottom: 10 }}>Removes their name, email and phone and signs them out. Their surveys stay.</Text>
+                <Button title="Delete user" kind="danger" small icon="trash-2" style={{ alignSelf: 'flex-start' }}
+                  onPress={() => {
+                    // close this panel first: iOS cannot open one pop-up over another
+                    const target = edit;
+                    setEdit(null);
+                    setTimeout(() => setRemoving(target), 400);
+                  }} />
+              </View>
+            ) : null}
           </>
         ) : null}
       </Sheet>
 
+      <Sheet visible={!!removing} onClose={() => setRemoving(null)} title={`Delete ${removing?.name ?? ''}?`}
+        footer={<Button title="Yes, delete this user" kind="danger" loading={remove.isPending} onPress={() => removing && remove.mutate(removing.id)} />}>
+        <Text v="body">{removing?.email}</Text>
+        <Text v="small" muted style={{ marginTop: 10, lineHeight: 20 }}>
+          Their name, email and phone number are erased and they are signed out on every device. Surveys they collected or filled in
+          stay in the project, no longer linked to them, so no score changes. This cannot be undone; the email can register again later.
+        </Text>
+      </Sheet>
       <AssignVillages key={assign?.id ?? 'none'} user={assign} onClose={() => setAssign(null)} onSave={ids => { if (assign) patch.mutate({ id: assign.id, body: { villages: ids } }); setAssign(null); }} />
       <AddUser visible={adding} onClose={() => setAdding(false)} onDone={() => { setAdding(false); qc.invalidateQueries({ queryKey: ['users'] }); }} />
     </View>

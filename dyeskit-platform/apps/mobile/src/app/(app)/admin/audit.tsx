@@ -11,7 +11,7 @@ const WORDS: Record<string, string> = {
   login: 'signed in', login_failed: 'failed sign-in', register: 'registered', upload_survey: 'uploaded a survey', edit_submission: 'corrected a survey',
   review_approved: 'approved a survey', review_rejected: 'sent a survey back', delete_submission: 'deleted a survey', restore_submission: 'restored a survey',
   update_user: 'changed a user', create_user: 'created a user', export: 'exported data', update_village: 'changed a village', create_village: 'added a village',
-  sync_villages: 'synced the official village list', seed_demo: 'created demo data', rescore_all: 'recalculated all scores', delete_account: 'deleted their account',
+  delete_user: 'deleted a user', sync_villages: 'synced the official village list', seed_demo: 'created demo data', rescore_all: 'recalculated all scores', delete_account: 'deleted their account',
 };
 
 export default function Audit() {

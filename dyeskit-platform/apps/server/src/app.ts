@@ -10,7 +10,7 @@ import {
 } from '@dyeskit/core';
 import { audit, type Db } from './db';
 import {
-  PASSWORD_RULE, assignedVillageIds, bearer, createSession, endSession, hashPassword, passwordOk, rightsOf, scopeOf,
+  PASSWORD_RULE, assignedVillageIds, bearer, createSession, endSession, eraseUser, hashPassword, passwordOk, rightsOf, scopeOf,
   userFromToken, verifyPassword, type SessionUser,
 } from './auth';
 import {
@@ -108,10 +108,7 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
     const { rows } = await db.query('SELECT password_hash FROM users WHERE id=$1', [u.id]);
     if (!verifyPassword(String(b.password ?? ''), rows[0].password_hash)) return reply.code(401).send({ error: 'Password is not correct.' });
     await db.tx(async q => {
-      await q.query(`UPDATE users SET name='Deleted user', email=$1, phone=NULL, status='disabled', deleted_at=now(), password_hash='deleted' WHERE id=$2`,
-        [`deleted-${u.id}@deleted.invalid`, u.id]);
-      await q.query('DELETE FROM sessions WHERE user_id=$1', [u.id]);
-      await q.query('DELETE FROM assignments WHERE user_id=$1', [u.id]);
+      await eraseUser(q, u.id);
       await audit(q, { id: u.id, name: 'Deleted user' }, 'delete_account', 'user', u.id);
     });
     return { ok: true };
@@ -364,6 +361,26 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
         for (const v of b.villages) await q.query('INSERT INTO assignments (user_id, village_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [id, Number(v)]);
       }
       await audit(q, u, 'update_user', 'user', id, { ...b, password: b.password ? '(changed)' : undefined });
+    });
+    return { ok: true };
+  });
+
+  /** Admins delete a person: erased as in "Delete my account"; their surveys stay. */
+  app.delete('/api/users/:id', async req => {
+    const u = signedIn(req);
+    need(rightsOf(u).manageUsers, 'Only admins can delete users.');
+    const id = Number((req.params as { id: string }).id);
+    if (id === u.id) throw fail(400, 'You cannot delete your own account here — use Account & privacy.');
+    const { rows } = await db.query('SELECT id, name, email, role FROM users WHERE id=$1 AND deleted_at IS NULL', [id]);
+    const target = rows[0];
+    if (!target) throw fail(404, 'User not found.');
+    if (target.role === 'admin') {
+      const admins = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM users WHERE role='admin' AND status='active' AND deleted_at IS NULL`);
+      if (admins.rows[0].n <= 1) throw fail(400, 'This is the last admin. Make someone else an admin first.');
+    }
+    await db.tx(async q => {
+      await eraseUser(q, id);
+      await audit(q, u, 'delete_user', 'user', id, { name: target.name, email: target.email, role: target.role });
     });
     return { ok: true };
   });
