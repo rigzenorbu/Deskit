@@ -8,3 +8,4 @@ export * from './codes';
 export * from './quality';
 export * from './phone';
 export * from './privacy';
+export * from './village-locations';

@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FONT, GRADIENTS, useTheme } from '@/theme';
 import { useMeta } from '@/lib/auth';
 import { useOutbox } from '@/lib/outbox';
+import { hasAlerts, useAlerts } from '@/lib/alerts';
 import { Text, tap, type IconName } from '@/components/ui';
 
 const ICONS: Record<string, IconName> = { index: 'home', villages: 'map', collect: 'plus', insights: 'zap', more: 'grid' };
@@ -19,6 +20,7 @@ function TabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const meta = useMeta();
   const { surveys } = useOutbox();
+  const alerts = useAlerts();
   const waiting = surveys.filter(s => s.status === 'queued' || s.status === 'failed').length;
   // household members see only Home, their survey and More
   const own = meta.rights.read === 'own';
@@ -57,6 +59,9 @@ function TabBar({ state, navigation }: BottomTabBarProps) {
             <Pressable key={route.key} onPress={onPress} style={{ flex: 1, alignItems: 'center', gap: 3 }}>
               <View style={{ width: 44, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: focused ? c.brandSoft : 'transparent' }}>
                 <Feather name={ICONS[route.name]} size={20} color={focused ? c.brand : c.ink3} />
+                {route.name === 'more' && hasAlerts(alerts.data) ? (
+                  <View style={{ position: 'absolute', top: 2, right: 8, width: 10, height: 10, borderRadius: 5, backgroundColor: c.danger, borderWidth: 2, borderColor: isDark ? '#18213F' : '#FFFFFF' }} />
+                ) : null}
               </View>
               <Text v="caption" color={focused ? c.brand : c.ink3} style={{ fontFamily: focused ? FONT.bold : FONT.medium }}>{LABELS[route.name]}</Text>
             </Pressable>

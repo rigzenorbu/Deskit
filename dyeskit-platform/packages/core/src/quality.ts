@@ -5,6 +5,7 @@
 
 import { ITEMS } from './questionnaire';
 import { bmiPoints, type Answers, type HouseholdScore } from './scoring';
+import { normalizePhone } from './phone';
 
 export interface SurveyIssue { id: string; label: string }
 
@@ -51,6 +52,56 @@ export function surveyIssues(s: { answers: Answers; score: HouseholdScore | null
   const scale = SCALE_ITEMS.map(id => a[id]).filter(v => v !== undefined && v !== null && v !== '');
   if (scale.length >= R.straightLineMin && new Set(scale.map(String)).size === 1) {
     out.push({ id: 'same_answer', label: `Same answer to all ${scale.length} agreement questions` });
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------ duplicates */
+
+export interface DuplicateInput {
+  id: string;
+  villageId: number;
+  roundId: number;
+  householdId: number;
+  householdCode: string;
+  headName: string | null;
+  /** the household's phone, or for a self-reported survey the member's own phone */
+  phone: string | null;
+}
+
+/** "Tsering  Dolkar's household" → "tsering dolkar"; a single word is not a usable name. */
+export function nameKey(name: string | null): string | null {
+  if (!name) return null;
+  const words = name.toLowerCase().replace(/['’]s\b/g, '').replace(/[^\p{L}\s]/gu, ' ').split(/\s+/)
+    .filter(w => w && !['household', 'family', 'house', 'hh', 'the', 'of'].includes(w));
+  return words.length >= 2 ? words.join(' ') : null;
+}
+
+/**
+ * Likely duplicates: two different households in the same village and the same round with the
+ * same phone number, or the same household head's full name — for example staff surveyed a
+ * household that also filled in its own survey, or someone registered twice.
+ */
+export function findDuplicates(rows: DuplicateInput[]): Map<string, SurveyIssue[]> {
+  const out = new Map<string, SurveyIssue[]>();
+  const groups = new Map<string, DuplicateInput[]>();
+  for (const r of rows) {
+    const keys = [
+      ...(normalizePhone(r.phone) ? [`p|${r.villageId}|${r.roundId}|${normalizePhone(r.phone)}`] : []),
+      ...(nameKey(r.headName) ? [`n|${r.villageId}|${r.roundId}|${nameKey(r.headName)}`] : []),
+    ];
+    for (const k of keys) { if (!groups.has(k)) groups.set(k, []); groups.get(k)!.push(r); }
+  }
+  for (const [key, list] of groups) {
+    const households = new Set(list.map(r => r.householdId));
+    if (households.size < 2) continue;
+    const why = key.startsWith('p|') ? 'same phone number' : `same head of household: ${list[0].headName}`;
+    for (const r of list) {
+      const others = [...new Set(list.filter(o => o.householdId !== r.householdId).map(o => o.householdCode))];
+      const issue = { id: 'duplicate', label: `Possible duplicate of ${others.join(', ')} (${why})` };
+      const cur = out.get(r.id) ?? [];
+      if (!cur.some(i => i.label === issue.label)) out.set(r.id, [...cur, issue]);
+    }
   }
   return out;
 }

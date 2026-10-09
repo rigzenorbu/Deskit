@@ -12,6 +12,8 @@ import { bandLabel, districtName, fmtDate, fmtMonth } from '@/lib/format';
 import { Badge, BandPill, Button, Card, Chip, Empty, ErrorBox, IconButton, Input, Loading, Progress, Rise, Row, Screen, SectionTitle, Text, toast } from '@/components/ui';
 import { BarList, Radar, Ring, TrendChart } from '@/components/charts';
 import { Hero } from '@/components/scenery';
+import { RoundChange } from '@/components/RoundChange';
+import { ReportButton } from '@/components/ReportButton';
 
 export default function VillageProfile() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -88,6 +90,8 @@ export default function VillageProfile() {
               </Card>
             </Rise>
 
+            <ReportButton villageId={v.id} style={{ marginTop: SPACE.md, alignSelf: 'flex-start' }} />
+
             <SectionTitle title="Seven dimensions" sub="Average out of 100; the shape below compares with all villages" />
             <Rise><Card>
               <BarList items={DIMENSIONS.map(dim => ({ key: dim.id, label: dim.name, value: village.dims[dim.id], color: DIM_COLORS[dim.id],
@@ -98,6 +102,10 @@ export default function VillageProfile() {
                   { label: v.name, values: DIMENSIONS.map(x => village.dims[x.id]), color: col },
                 ]} />
             </Card></Rise>
+
+            {d!.rounds && d!.rounds.filter(r => r.score !== null).length > 1 ? (
+              <View style={{ marginTop: SPACE.md }}><RoundChange rounds={d!.rounds} subject={v.name} /></View>
+            ) : null}
 
             {flags.length ? (
               <>

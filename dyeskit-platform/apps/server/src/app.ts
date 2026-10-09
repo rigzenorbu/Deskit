@@ -7,17 +7,19 @@ import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import {
   BANDS, CONSENT_TEXT, DIMENSIONS, DISTRICTS, ITEMS, QUESTIONNAIRE_VERSION, ROLES, ROLE_RIGHTS, SCORING_VERSION, SECTIONS,
-  ORGANISATION, PRIVACY_POLICY, PRIVACY_UPDATED, RESPONDENT_SURVEY_LIMIT, maskPhone, normalizePhone, surveyIssues, computeDashboard, computeInsights, publicDashboard, scoreHousehold, type Role,
+  PUBLIC_MIN_SURVEYS, compareRounds, districtName, ORGANISATION, PRIVACY_POLICY, PRIVACY_UPDATED, RESPONDENT_SURVEY_LIMIT, maskPhone, normalizePhone, surveyIssues, computeDashboard, computeInsights, publicDashboard, scoreHousehold, type Role,
 } from '@dyeskit/core';
 import { audit, type Db } from './db';
 import { CODE_MINUTES, checkCode, createCode, createTicket, redeemTicket } from './otp';
 import { phoneSignInAvailable, revealCodes, sendSms } from './sms';
+import { reportHtml } from './report';
+import { SUGGESTIONS, ask, assistantMode, type ChatTurn } from './assistant';
 import {
   NO_PASSWORD, PASSWORD_RULE, assignedVillageIds, bearer, createSession, endSession, eraseUser, hashPassword, passwordOk, rightsOf, scopeOf,
   userFromToken, verifyPassword, type SessionUser,
 } from './auth';
 import {
-  applyFilters, counts, getAnswers, loadRows, newVillageCode, parseFilters, rescore, rescoreOutdated, saveAnswers, storeUpload,
+  applyFilters, counts, currentRound, getAnswers, issueChecker, loadRows, newVillageCode, parseFilters, rescore, rescoreOutdated, saveAnswers, storeUpload,
   villagesInfo, type UploadedSurvey,
 } from './data';
 
@@ -237,6 +239,7 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
     const u = signedIn(req);
     const villages = (await db.query(
       `SELECT v.id, v.district, v.code, v.name, v.gazette_name, v.subdivision, v.block, v.households, v.altitude_m, v.official,
+              v.lat, v.lon, v.location_source,
               (SELECT count(*)::int FROM submissions s WHERE s.village_id = v.id AND s.deleted_at IS NULL) AS surveys
        FROM villages v WHERE v.archived_at IS NULL ORDER BY v.name`)).rows;
     const collectors = rightsOf(u).read === 'own' ? [] : (await db.query(
@@ -246,6 +249,11 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
       districts: DISTRICTS, villages, collectors, roles: ROLES,
       questionnaire: { version: QUESTIONNAIRE_VERSION, sections: SECTIONS, consent: CONSENT_TEXT },
       dimensions: DIMENSIONS, bands: BANDS, scoringVersion: SCORING_VERSION,
+      rounds: (await db.query(
+        `SELECT r.id, r.name, r.started_at, r.closed_at,
+                (SELECT count(*)::int FROM submissions s WHERE s.round_id = r.id AND s.deleted_at IS NULL) AS surveys
+         FROM rounds r ORDER BY r.started_at, r.id`)).rows,
+      currentRoundId: (await currentRound(db)).id,
     };
   });
 
@@ -254,26 +262,61 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
     const u = signedIn(req);
     if (rightsOf(u).read === 'own') {
       // household members: the Ladakh-wide picture only, whatever filters are asked for
-      const rows = applyFilters(await loadRows(db, null), parseFilters({})).filter(counts);
-      return publicDashboard(computeDashboard(rows, await villagesInfo(db, null)));
+      const cur = (await currentRound(db)).id;
+      const everyRound = applyFilters(await loadRows(db, null), parseFilters({}, null)).filter(counts);
+      const rows = everyRound.filter(r => r.roundId === cur);
+      return { ...publicDashboard(computeDashboard(rows, await villagesInfo(db, null))),
+        rounds: compareRounds(everyRound).filter(r => r.n >= PUBLIC_MIN_SURVEYS) };
     }
     const scope = await scopeOf(db, u);
+    const cur = (await currentRound(db)).id;
     const all = (await loadRows(db, scope)).filter(counts);
-    const f = parseFilters(req.query as Q);
+    const f = parseFilters(req.query as Q, cur);
     const rows = applyFilters(all, f);
     let villages = await villagesInfo(db, scope);
     if (f.district) villages = villages.filter(v => v.district === f.district);
     if (f.villageIds.length) villages = villages.filter(v => f.villageIds.includes(v.id));
-    const baseline = applyFilters(all, parseFilters({}));
-    return computeDashboard(rows, villages, baseline);
+    const baseline = applyFilters(all, parseFilters({}, f.round));
+    // the same filters, every round: how this group changed over time
+    const rounds = compareRounds(applyFilters(all, { ...f, round: null }));
+    return { ...computeDashboard(rows, villages, baseline), rounds };
   });
 
   app.get('/api/insights', async req => {
     const u = signedIn(req);
     need(rightsOf(u).read !== 'own', 'Insights are for project staff.');
     const scope = await scopeOf(db, u);
-    const rows = applyFilters(await loadRows(db, scope), parseFilters(req.query as Q)).filter(counts);
+    const rows = applyFilters(await loadRows(db, scope), parseFilters(req.query as Q, (await currentRound(db)).id)).filter(counts);
     return computeInsights(rows, await villagesInfo(db, scope));
+  });
+
+  /* --------------------------------------------------------- assistant */
+  app.get('/api/assistant', async req => {
+    need(rightsOf(signedIn(req)).read !== 'own', 'The assistant is for project staff.');
+    return { mode: assistantMode(), suggestions: SUGGESTIONS };
+  });
+
+  app.post('/api/assistant', limit(30, 10), async req => {
+    const u = signedIn(req);
+    need(rightsOf(u).read !== 'own', 'The assistant is for project staff.');
+    const b = (req.body ?? {}) as { question?: string; history?: ChatTurn[]; round?: string };
+    const question = String(b.question ?? '').trim().slice(0, 500);
+    if (!question) throw fail(400, 'Ask a question.');
+    const history = (Array.isArray(b.history) ? b.history : [])
+      .filter(t => (t?.role === 'user' || t?.role === 'assistant') && typeof t.text === 'string')
+      .map(t => ({ role: t.role, text: t.text.slice(0, 2000) }));
+    const scope = await scopeOf(db, u);
+    const cur = await currentRound(db);
+    const roundId = b.round === 'all' ? null : b.round ? Number(b.round) : cur.id;
+    const roundName = roundId === null ? 'all rounds'
+      : (await db.query<{ name: string }>('SELECT name FROM rounds WHERE id=$1', [roundId])).rows[0]?.name ?? cur.name;
+    const codes = await db.query<{ id: number; code: string }>('SELECT id, code FROM villages');
+    return ask({
+      rows: (await loadRows(db, scope)).filter(r => counts(r) && r.status !== 'rejected'),
+      roundId, roundName,
+      villages: await villagesInfo(db, scope),
+      villageCodes: new Map(codes.rows.map(r => [r.id, r.code])),
+    }, question, history, msg => req.log.warn(msg));
   });
 
   /* ------------------------------------------------------- submissions */
@@ -282,10 +325,12 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
     const R = rightsOf(u);
     const q = req.query as Q;
     // the list shows every status, rejected included; dashboards leave rejected surveys out
-    const rows = applyFilters(await loadRows(db, await scopeOf(db, u)), parseFilters(q), { allStatuses: true })
+    const everything = await loadRows(db, await scopeOf(db, u));
+    const issuesOf = issueChecker(everything);
+    const rows = applyFilters(everything, parseFilters(q, R.read === 'own' ? null : (await currentRound(db)).id), { allStatuses: true })
       .filter(r => R.read !== 'own' || r.collectorId === u.id)
       .filter(r => !q.source || r.source === q.source)
-      .map(r => ({ ...r, issues: surveyIssues(r) }))
+      .map(r => ({ ...r, issues: issuesOf(r) }))
       .filter(r => !q.flagged || r.issues.length > 0);
     const limit = Math.min(500, Number(q.limit) || 100), offset = Number(q.offset) || 0;
     return {
@@ -295,6 +340,7 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
         district: r.district, status: r.status, submittedAt: r.submittedAt, durationMin: r.durationMin,
         score: r.score?.score ?? null, band: r.score?.band ?? null, collectorId: r.collectorId, source: r.source,
         collectorName: R.read === 'all' || R.read === 'assigned' ? r.collectorName : null,
+        round: r.roundName, roundId: r.roundId,
         issues: R.review || R.editAny ? r.issues : [],
       })),
     };
@@ -307,9 +353,10 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
   const loadSubmission = async (u: SessionUser, id: string) => {
     const { rows } = await db.query(
       `SELECT su.*, v.name AS village, v.district, v.code AS village_code, h.code AS household_code, h.head_name, h.phone,
-              c.name AS collector_name, r.name AS reviewer_name
+              c.name AS collector_name, r.name AS reviewer_name, rd.name AS round_name
        FROM submissions su JOIN villages v ON v.id = su.village_id JOIN households h ON h.id = su.household_id
        LEFT JOIN users c ON c.id = su.collector_id LEFT JOIN users r ON r.id = su.reviewed_by
+       JOIN rounds rd ON rd.id = su.round_id
        WHERE su.id = $1`, [id]);
     const s = rows[0];
     if (!s) throw fail(404, 'Survey not found.');
@@ -334,10 +381,14 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
         householdCode: pii ? s.household_code : `HH-${s.id.slice(0, 6)}`, headName: pii ? s.head_name : null, phone: pii ? s.phone : null,
         collector: s.collector_name, collectorId: s.collector_id, reviewer: s.reviewer_name, reviewNote: s.review_note,
         startedAt: s.started_at, submittedAt: s.submitted_at, durationMin: s.duration_min, deletedAt: s.deleted_at,
-        questionnaireVersion: s.questionnaire_version, source: s.source,
+        questionnaireVersion: s.questionnaire_version, source: s.source, round: s.round_name,
       },
       answers, score: scoreHousehold(answers), history,
-      issues: R.review || R.editAny ? surveyIssues({ answers, score: scoreHousehold(answers), durationMin: s.duration_min }) : [],
+      issues: R.review || R.editAny ? await (async () => {
+        const villageRows = await loadRows(db, [s.village_id]);
+        const row = villageRows.find(r => r.id === s.id);
+        return row ? issueChecker(villageRows)(row) : surveyIssues({ answers, score: scoreHousehold(answers), durationMin: s.duration_min });
+      })() : [],
       canEdit: R.editAny || householdOwns(u, s) || (R.read !== 'own' && s.collector_id === u.id && s.status !== 'approved'),
       canReview: R.review, canDelete: R.delete || householdOwns(u, s),
     };
@@ -354,8 +405,8 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
     for (const s of surveys.slice(0, 200)) {
       try {
         if (scope && !scope.includes(Number(s.village_id))) throw fail(403, 'This village is not assigned to you.');
-        results.push({ ok: true, ...(await storeUpload(db, u, s, R.read === 'own'
-          ? { source: 'self', limit: RESPONDENT_SURVEY_LIMIT } : { source: 'researcher' })) });
+        results.push({ ok: true, ...(await storeUpload(db, u, R.read === 'own' ? { ...s, household_id: null } : s, R.read === 'own'
+          ? { source: 'self', limit: RESPONDENT_SURVEY_LIMIT, ownHousehold: true } : { source: 'researcher' })) });
       } catch (e) {
         results.push({ ok: false, client_id: s.client_id, error: (e as Error).message });
       }
@@ -383,8 +434,9 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
           [b.headName ?? null, b.phone ?? null, s.household_id]);
       }
       await q.query('UPDATE submissions SET updated_at = now() WHERE id=$1', [s.id]);
-      // a household changing a checked survey sends it back for review
-      if (household && s.status !== 'submitted') {
+      // a household changing a checked survey, or anyone fixing their own sent-back survey,
+      // puts it back in the queue for review
+      if ((household && s.status !== 'submitted') || (s.collector_id === u.id && s.status === 'rejected')) {
         await q.query(`UPDATE submissions SET status='submitted', reviewed_by=NULL, reviewed_at=NULL, review_note=NULL WHERE id=$1`, [s.id]);
       }
       await audit(q, u, 'edit_submission', 'submission', s.id, { items: Object.keys(b.answers ?? {}), reason: b.reason });
@@ -436,6 +488,36 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
        LEFT JOIN users d ON d.id = su.deleted_by WHERE su.deleted_at IS NOT NULL ORDER BY su.deleted_at DESC LIMIT 200`)).rows };
   });
 
+  /* ------------------------------------------------------------- alerts */
+  /**
+   * What needs the signed-in person's attention, for the red dot and the Home banners:
+   * registrations to approve (admins), surveys to review (supervisors and admins), and the
+   * person's own surveys that were sent back (field researchers and households).
+   */
+  app.get('/api/alerts', async req => {
+    const u = signedIn(req);
+    const R = rightsOf(u);
+    const out: { pendingUsers: number; waitingReview: number; needsLook: number; sentBack: { id: string; householdCode: string; village: string; note: string | null }[] } =
+      { pendingUsers: 0, waitingReview: 0, needsLook: 0, sentBack: [] };
+    if (R.manageUsers) {
+      out.pendingUsers = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM users WHERE status='pending' AND deleted_at IS NULL`)).rows[0].n;
+    }
+    if (R.review) {
+      const everything = await loadRows(db, await scopeOf(db, u));
+      const issuesOf = issueChecker(everything);
+      const rows = everything.filter(r => r.status === 'submitted');   // every round: nothing is left unreviewed
+      out.waitingReview = rows.length;
+      out.needsLook = rows.filter(r => issuesOf(r).length).length;
+    }
+    if (R.addData) {
+      out.sentBack = (await db.query(
+        `SELECT su.id, h.code AS "householdCode", v.name AS village, su.review_note AS note
+         FROM submissions su JOIN households h ON h.id = su.household_id JOIN villages v ON v.id = su.village_id
+         WHERE su.collector_id = $1 AND su.status = 'rejected' AND su.deleted_at IS NULL ORDER BY su.reviewed_at DESC LIMIT 20`, [u.id])).rows as never;
+    }
+    return out;
+  });
+
   /* ----------------------------------------------------------- all data */
   /**
    * Counts for reviewing data district by district and village by village: surveys, waiting
@@ -445,7 +527,11 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
     const u = signedIn(req);
     const R = rightsOf(u);
     need(R.review || R.editAny, 'Only admins and supervisors can review all data.');
-    const rows = (await loadRows(db, await scopeOf(db, u))).map(r => ({ ...r, flagged: surveyIssues(r).length > 0 }));
+    const q = req.query as Q;
+    const round = q.round === 'all' ? null : q.round ? Number(q.round) : (await currentRound(db)).id;
+    const everything = await loadRows(db, await scopeOf(db, u));
+    const issuesOf = issueChecker(everything);
+    const rows = everything.filter(r => !round || r.roundId === round).map(r => ({ ...r, flagged: issuesOf(r).length > 0 }));
     const villages = await db.query<{ id: number; name: string; code: string; district: string; households: number }>(
       'SELECT id, name, code, district, households FROM villages WHERE archived_at IS NULL');
     const count = (rs: typeof rows) => ({
@@ -482,6 +568,83 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
       await audit(db, u, 'review_approved_bulk', 'submission', null, { count: allowed.length });
     }
     return { ok: true, approved: allowed.length };
+  });
+
+  /* ----------------------------------------------------------- reports */
+  /** A printable report for one village (?village_id=) or one district (?district=), totals only. */
+  app.get('/api/report', async (req, reply) => {
+    const u = signedIn(req);
+    need(rightsOf(u).read !== 'own', 'Reports are for project staff.');
+    const q = req.query as Q;
+    const scope = await scopeOf(db, u);
+    const cur = await currentRound(db);
+    const f = parseFilters({ village_id: q.village_id, district: q.district, round: q.round }, cur.id);
+    if (!f.villageIds.length && !f.district) throw fail(400, 'Choose a village or a district.');
+    const all = (await loadRows(db, scope)).filter(counts);
+    const rows = applyFilters(all, f);
+    let villages = await villagesInfo(db, scope);
+    villages = villages.filter(v => (f.villageIds.length ? f.villageIds.includes(v.id) : v.district === f.district));
+    const roundName = f.round ? (await db.query<{ name: string }>('SELECT name FROM rounds WHERE id=$1', [f.round])).rows[0]?.name ?? cur.name : 'all rounds';
+    let title: string, subtitle: string, households: number | null = null;
+    if (f.villageIds.length) {
+      const v = (await db.query('SELECT name, district, block, code, households FROM villages WHERE id=$1', [f.villageIds[0]])).rows[0];
+      if (!v) throw fail(404, 'Village not found.');
+      if (scope && !scope.includes(f.villageIds[0])) throw fail(403, 'This village is outside your assignment.');
+      title = v.name;
+      subtitle = [`${districtName(v.district)} district`, v.block && `${v.block} block`, `village code ${v.code}`].filter(Boolean).join(' · ');
+      households = v.households || null;
+    } else {
+      title = `${districtName(f.district)} district`;
+      subtitle = `${villages.length} villages${scope ? ' assigned to you' : ''} · ${new Set(rows.map(r => r.villageId)).size} with surveys this round`;
+    }
+    const html = reportHtml({
+      title, subtitle, roundName, households,
+      dashboard: computeDashboard(rows, villages),
+      insights: computeInsights(rows, villages),
+      rounds: compareRounds(applyFilters(all, { ...f, round: null })),
+      generatedBy: u.name,
+    });
+    await audit(db, u, 'report', f.villageIds.length ? 'village' : 'district', f.villageIds[0] ?? f.district);
+    reply.header('Content-Type', 'text/html; charset=utf-8');
+    return html;
+  });
+
+  /* ------------------------------------------------------------ rounds */
+  /** Start a new survey round (e.g. "2027"). The current one closes; its surveys stay as they are. */
+  app.post('/api/rounds', async req => {
+    const u = signedIn(req);
+    need(rightsOf(u).manageUsers, 'Only admins can start a new round.');
+    const name = String(((req.body ?? {}) as { name?: string }).name ?? '').trim();
+    if (!name || name.length > 40) throw fail(400, 'Give the round a short name, e.g. 2027.');
+    const exists = await db.query('SELECT 1 FROM rounds WHERE lower(name) = lower($1)', [name]);
+    if (exists.rows.length) throw fail(409, `There is already a round called ${name}.`);
+    const r = await db.tx(async q => {
+      await q.query('UPDATE rounds SET closed_at = now() WHERE closed_at IS NULL');
+      return (await q.query<{ id: number }>('INSERT INTO rounds (name) VALUES ($1) RETURNING id', [name])).rows[0];
+    });
+    await audit(db, u, 'start_round', 'round', r.id, { name });
+    return { ok: true, id: r.id, name };
+  });
+
+  /**
+   * Households in a village, for surveying one again in a new round (staff who collect). Shows
+   * whether each has already been surveyed in the current round.
+   */
+  app.get('/api/households', async req => {
+    const u = signedIn(req);
+    const R = rightsOf(u);
+    need(R.addData && R.read !== 'own', 'Only project staff can look up households.');
+    const villageId = Number((req.query as Q).village_id);
+    const scope = await scopeOf(db, u);
+    if (scope && !scope.includes(villageId)) throw fail(403, 'This village is not assigned to you.');
+    const cur = (await currentRound(db)).id;
+    const { rows } = await db.query(
+      `SELECT h.id, h.code, h.head_name AS "headName",
+              max(s.submitted_at) AS "lastSurveyAt",
+              bool_or(s.round_id = $2) AS "surveyedThisRound"
+       FROM households h JOIN submissions s ON s.household_id = h.id AND s.deleted_at IS NULL
+       WHERE h.village_id = $1 GROUP BY h.id ORDER BY h.seq`, [villageId, cur]);
+    return { rows: rows.map(r => ({ ...r, headName: R.pii ? r.headName : null })) };
   });
 
   /* ------------------------------------------------------------- users */
@@ -579,10 +742,16 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
     const u = signedIn(req);
     need(rightsOf(u).manageVillages, 'Only admins and supervisors can change villages.');
     const id = Number((req.params as { id: string }).id);
-    const b = (req.body ?? {}) as { households?: number; altitude_m?: number | null };
+    const b = (req.body ?? {}) as { households?: number; altitude_m?: number | null; lat?: number; lon?: number };
     if (b.households !== undefined && (!Number.isInteger(Number(b.households)) || Number(b.households) < 0)) throw fail(400, 'Households must be a whole number.');
     await db.query('UPDATE villages SET households = COALESCE($1, households), altitude_m = COALESCE($2, altitude_m) WHERE id=$3',
       [b.households ?? null, b.altitude_m ?? null, id]);
+    if (b.lat !== undefined || b.lon !== undefined) {
+      const lat = Number(b.lat), lon = Number(b.lon);
+      // roughly Ladakh, with room to spare: catches swapped or mistyped numbers
+      if (!(lat >= 31 && lat <= 37 && lon >= 74 && lon <= 81)) throw fail(400, 'That location is not in Ladakh. Check latitude (about 32–36) and longitude (about 75–80).');
+      await db.query(`UPDATE villages SET lat=$1, lon=$2, location_source='manual' WHERE id=$3`, [lat, lon, id]);
+    }
     await audit(db, u, 'update_village', 'village', id, b);
     return { ok: true };
   });
@@ -616,17 +785,17 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
     const R = rightsOf(u);
     need(R.export !== 'none', 'Your role cannot export data.');
     const anon = R.export === 'anon';
-    const rows = applyFilters(await loadRows(db, await scopeOf(db, u)), parseFilters(req.query as Q));
+    const rows = applyFilters(await loadRows(db, await scopeOf(db, u)), parseFilters(req.query as Q, (await currentRound(db)).id));
     const items = SECTIONS.flatMap(s => s.items);
     const cell = (v: unknown) => {
       const s = v === undefined || v === null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const header = ['survey_id', 'household_code', 'village', 'district', 'status', 'source', 'submitted_at', 'duration_min',
+    const header = ['survey_id', 'round', 'household_code', 'village', 'district', 'status', 'source', 'submitted_at', 'duration_min',
       'score', 'band', ...DIMENSIONS.map(d => `dim_${d.id}`), ...items.map(i => i.id)];
     const lines = [header.join(',')];
     for (const r of rows) {
-      lines.push([r.id, anon ? '' : r.householdCode, r.village, r.district, r.status, r.source, r.submittedAt, r.durationMin,
+      lines.push([r.id, r.roundName, anon ? '' : r.householdCode, r.village, r.district, r.status, r.source, r.submittedAt, r.durationMin,
         r.score?.score, r.score?.band, ...DIMENSIONS.map(d => r.score?.dims[d.id]?.score),
         ...items.map(i => r.answers[i.id])].map(cell).join(','));
     }

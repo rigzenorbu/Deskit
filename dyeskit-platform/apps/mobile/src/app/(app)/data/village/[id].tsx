@@ -7,6 +7,7 @@ import { districtName, type SurveyIssue } from '@dyeskit/core';
 import { FONT, RADIUS, SPACE, districtColor, useTheme } from '@/theme';
 import { useMeta } from '@/lib/auth';
 import { api, qs } from '@/lib/api';
+import { useFilters } from '@/lib/filters';
 import { fmtDateTime } from '@/lib/format';
 import { BandPill, Button, Card, Chip, Empty, ErrorBox, Loading, Row, SearchBar, Sheet, StatusBadge, Text, toast } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
@@ -34,8 +35,9 @@ export default function VillageData() {
   const [applied, setApplied] = useState('');
   const [confirm, setConfirm] = useState(false);
 
+  const { filters } = useFilters();
   const params = {
-    village_id: village?.id, district: p.district, search: applied, limit: 500,
+    village_id: village?.id, district: p.district, search: applied, limit: 500, round: filters.round,
     status: ['submitted', 'approved', 'rejected'].includes(view) ? view : '',
     source: view === 'self' || view === 'researcher' ? view : '',
     flagged: view === 'flagged' ? 1 : '',
@@ -55,6 +57,7 @@ export default function VillageData() {
       qc.invalidateQueries({ queryKey: ['submissions'] });
       qc.invalidateQueries({ queryKey: ['data-summary'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
+      qc.invalidateQueries({ queryKey: ['alerts'] });
     },
     onError: (e: Error) => toast(e.message, 'error'),
   });

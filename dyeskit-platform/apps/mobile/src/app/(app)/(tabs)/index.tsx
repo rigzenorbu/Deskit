@@ -8,12 +8,15 @@ import { useAuth, useMeta } from '@/lib/auth';
 import { useFilters } from '@/lib/filters';
 import { useDashboard } from '@/lib/queries';
 import { useOutbox } from '@/lib/outbox';
-import { bandLabel, firstName, fmtMonth, fmtScore, greeting } from '@/lib/format';
+import { bandLabel, districtName, firstName, fmtMonth, fmtScore, greeting } from '@/lib/format';
 import { Badge, Button, Card, ErrorBox, Loading, Rise, Row, Screen, SectionTitle, StatTile, Text, tap } from '@/components/ui';
 import { BarList, Columns, Radar, Ring, ShareBar, TrendChart } from '@/components/charts';
 import { Hero, Logo } from '@/components/scenery';
 import { FilterBar } from '@/components/pickers';
 import { HouseholdHome } from '@/components/household';
+import { AlertsBanner } from '@/components/AlertsBanner';
+import { RoundChange } from '@/components/RoundChange';
+import { ReportButton } from '@/components/ReportButton';
 
 export default function Home() {
   const meta = useMeta();
@@ -24,7 +27,7 @@ function StaffHome() {
   const meta = useMeta();
   const { offline } = useAuth();
   const { c } = useTheme();
-  const { set } = useFilters();
+  const { filters, set } = useFilters();
   const { surveys, syncing } = useOutbox();
   const q = useDashboard();
   const d = q.data;
@@ -69,7 +72,11 @@ function StaffHome() {
         </Hero>
       }>
       <View style={{ paddingHorizontal: SPACE.lg }}>
+        <AlertsBanner />
         <FilterBar />
+        {filters.district && !filters.village_id ? (
+          <ReportButton district={filters.district} label={`${districtName(filters.district)} district report`} style={{ marginTop: SPACE.md, alignSelf: 'flex-start' }} />
+        ) : null}
         {q.isLoading ? <Loading label="Gathering the numbers…" /> : q.error ? <ErrorBox error={q.error} onRetry={() => q.refetch()} /> : d ? (
           <>
             <Row wrap gap={SPACE.md} style={{ marginTop: SPACE.lg }}>
@@ -126,6 +133,10 @@ function StaffHome() {
                 </Card>
               </Rise>
             </View>
+
+            {d.rounds && d.rounds.filter(r => r.score !== null).length > 1 ? (
+              <Rise style={{ marginTop: SPACE.md }}><RoundChange rounds={d.rounds} subject="The households in view" /></Rise>
+            ) : null}
 
             <SectionTitle title="How households are spread" sub="Number of households in each band" />
             <Rise><Card>

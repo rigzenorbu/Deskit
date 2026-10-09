@@ -166,8 +166,9 @@ const PROMISES = [
 function HouseholdSurvey() {
   const { c } = useTheme();
   const { surveys } = useOutbox();
-  const mine = useQuery({ queryKey: ['submissions', 'mine'], queryFn: () => api<{ rows: { id: string; householdCode: string }[] }>('/api/submissions') });
-  const sent = mine.data?.rows[0];
+  const meta = useMeta();
+  const mine = useQuery({ queryKey: ['submissions', 'mine'], queryFn: () => api<{ rows: { id: string; householdCode: string; roundId: number }[] }>('/api/submissions') });
+  const sent = mine.data?.rows.find(r => r.roundId === meta.currentRoundId);   // only this round's survey counts
   const draft = surveys.find(s => s.status === 'draft');
   const waiting = surveys.find(s => s.status === 'queued');
   if (mine.isLoading) return <Screen><Loading /></Screen>;

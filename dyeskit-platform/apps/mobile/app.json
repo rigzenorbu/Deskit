@@ -44,7 +44,13 @@
       ],
       "expo-secure-store",
       "expo-sqlite",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "DYESKIT uses your location only when you tap \u201cUse my current location\u201d, to place a village on the map."
+        }
+      ]
     ],
     "experiments": {
       "reactCompiler": true

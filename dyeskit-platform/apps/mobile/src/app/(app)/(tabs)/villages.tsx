@@ -7,7 +7,7 @@ import { FONT, RADIUS, SPACE, districtColor, scoreColor, useTheme } from '@/them
 import { useMeta } from '@/lib/auth';
 import { useDashboard } from '@/lib/queries';
 import { fmtScore } from '@/lib/format';
-import { BandPill, Card, Chip, Rise, Row, Screen, SearchBar, Text, tap } from '@/components/ui';
+import { BandPill, Button, Card, Chip, Rise, Row, Screen, SearchBar, Text, tap } from '@/components/ui';
 import { Hero } from '@/components/scenery';
 import { villageMatches } from '@/components/pickers';
 
@@ -34,6 +34,7 @@ export default function Villages() {
           {pool.length} villages across {new Set(pool.map(v => v.district)).size} districts{scope ? ' assigned to you' : ''}
         </Text>
         <SearchBar value={q} onChange={setQ} placeholder="Search name, code (CHL) or block" />
+        <Button title="See them on the map" icon="map" kind="light" small onPress={() => router.push('/map')} style={{ marginTop: 12, alignSelf: 'flex-start' }} />
       </Hero>
     }>
       <View style={{ paddingHorizontal: SPACE.lg }}>

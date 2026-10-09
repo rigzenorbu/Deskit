@@ -10,8 +10,10 @@ export interface Filters {
   religion: string;
   band: string;
   status: string;
+  /** a round id, "all", or '' for the current round */
+  round: string;
 }
-export const EMPTY_FILTERS: Filters = { district: '', village_id: '', period: '', gender: '', age_group: '', religion: '', band: '', status: '' };
+export const EMPTY_FILTERS: Filters = { district: '', village_id: '', period: '', gender: '', age_group: '', religion: '', band: '', status: '', round: '' };
 
 export const PERIODS: { id: Filters['period']; label: string }[] = [
   { id: '', label: 'All time' }, { id: '30', label: '30 days' }, { id: '90', label: '3 months' },
@@ -24,7 +26,7 @@ const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padSt
 export function filterQuery(f: Filters) {
   const from = f.period === 'year' ? `${new Date().getFullYear()}-01-01`
     : f.period ? isoDay(new Date(Date.now() - (Number(f.period) - 1) * 864e5)) : '';
-  return { district: f.district, village_id: f.village_id, from, gender: f.gender, age_group: f.age_group, religion: f.religion, band: f.band, status: f.status };
+  return { district: f.district, village_id: f.village_id, from, gender: f.gender, age_group: f.age_group, religion: f.religion, band: f.band, status: f.status, round: f.round };
 }
 
 interface FilterState { filters: Filters; set: (patch: Partial<Filters>) => void; reset: () => void; active: number }

@@ -15,7 +15,7 @@ import { TopBar } from '@/components/TopBar';
 
 interface Detail {
   submission: { id: string; village: string; villageId: number; district: string; status: string; householdCode: string; headName: string | null; phone: string | null;
-    collector: string | null; reviewer: string | null; reviewNote: string | null; submittedAt: string; durationMin: number | null; deletedAt: string | null; source?: string };
+    collector: string | null; reviewer: string | null; reviewNote: string | null; submittedAt: string; durationMin: number | null; deletedAt: string | null; source?: string; round?: string };
   answers: Answers; score: HouseholdScore;
   history: { item_id: string; old_value: unknown; new_value: unknown; changed_at: string; reason: string | null; changed_by: string | null }[];
   canEdit: boolean; canReview: boolean; canDelete: boolean;
@@ -33,7 +33,7 @@ export default function SubmissionDetail() {
   const [reason, setReason] = useState('');
   const [sheet, setSheet] = useState<null | 'reject' | 'delete' | 'save'>(null);
   const [note, setNote] = useState('');
-  const refresh = () => { qc.invalidateQueries({ queryKey: ['submission', id] }); qc.invalidateQueries({ queryKey: ['submissions'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); };
+  const refresh = () => { qc.invalidateQueries({ queryKey: ['submission', id] }); qc.invalidateQueries({ queryKey: ['submissions'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); qc.invalidateQueries({ queryKey: ['alerts'] }); qc.invalidateQueries({ queryKey: ['data-summary'] }); };
 
   const review = useMutation({
     mutationFn: (status: string) => api(`/api/submissions/${id}/review`, { method: 'POST', body: { status, note } }),
@@ -70,7 +70,7 @@ export default function SubmissionDetail() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
-      <TopBar title={s.householdCode} sub={`${s.village} · ${fmtDateTime(s.submittedAt)}`} right={<StatusBadge status={s.status} />} />
+      <TopBar title={s.householdCode} sub={`${s.village} · ${s.round ? `round ${s.round} · ` : ''}${fmtDateTime(s.submittedAt)}`} right={<StatusBadge status={s.status} />} />
       <Screen>
         {q.data.issues?.length ? (
           <Card style={{ marginBottom: SPACE.md, borderLeftWidth: 4, borderLeftColor: c.danger }}>

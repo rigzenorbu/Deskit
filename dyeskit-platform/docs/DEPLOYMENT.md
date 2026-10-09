@@ -18,6 +18,8 @@ admins and analysts can use it from a computer at the same address.
 | `SMS_PROVIDER` | `twilio` to send sign-in codes by text message. Unset: phone sign-in is off in production (in development the code is shown on screen instead) |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` (or `TWILIO_MESSAGING_SERVICE_SID`) | Twilio account details, when `SMS_PROVIDER=twilio` |
 | `OTP_SECRET` | any long random text; keeps sign-in codes valid across a restart |
+| `ANTHROPIC_API_KEY` | optional: switches on AI answers in **Ask the data** (Claude, from console.anthropic.com; billed per question). Unset: the assistant gives quick rule-based answers, at no cost |
+| `ASSISTANT_MODEL` | optional: the Claude model for Ask the data (default `claude-opus-5-5`) |
 
 **Text messages in India** need the message template registered on TRAI's DLT platform. Your
 SMS provider walks you through it; the message the app sends is

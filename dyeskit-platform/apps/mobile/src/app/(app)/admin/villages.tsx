@@ -8,6 +8,7 @@ import { districtName } from '@/lib/format';
 import { Badge, Button, Card, Chip, IconButton, Input, Row, Screen, SearchBar, Sheet, Text, toast } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
 import { villageMatches } from '@/components/pickers';
+import { currentPosition } from '@/lib/location';
 
 export default function AdminVillages() {
   const meta = useMeta();
@@ -18,6 +19,9 @@ export default function AdminVillages() {
   const [edit, setEdit] = useState<VillageMeta | null>(null);
   const [hh, setHh] = useState('');
   const [alt, setAlt] = useState('');
+  const [lat, setLat] = useState('');
+  const [lon, setLon] = useState('');
+  const [locating, setLocating] = useState(false);
   const [adding, setAdding] = useState(false);
   const [nv, setNv] = useState({ name: '', district: 'leh', block: '', households: '' });
   const list = meta.villages.filter(v => (!district || v.district === district) && villageMatches(v, q));
@@ -25,7 +29,11 @@ export default function AdminVillages() {
 
   const save = async () => {
     try {
-      await api(`/api/villages/${edit!.id}`, { method: 'PATCH', body: { households: hh === '' ? undefined : Number(hh), altitude_m: alt === '' ? undefined : Number(alt) } });
+      const moved = lat !== (edit!.lat?.toString() ?? '') || lon !== (edit!.lon?.toString() ?? '');
+      await api(`/api/villages/${edit!.id}`, { method: 'PATCH', body: {
+        households: hh === '' ? undefined : Number(hh), altitude_m: alt === '' ? undefined : Number(alt),
+        ...(moved && lat && lon ? { lat: Number(lat), lon: Number(lon) } : {}),
+      } });
       await refresh(); toast(`${edit!.name} updated`); setEdit(null);
     } catch (e: any) { toast(e.message, 'error'); }
   };
@@ -50,7 +58,8 @@ export default function AdminVillages() {
           {DISTRICTS.map(d => <Chip key={d.id} label={d.name} color={districtColor(d.id)} active={district === d.id} onPress={() => setDistrict(d.id)} />)}
         </ScrollView>
         {list.map(v => (
-          <Card key={v.id} style={{ marginBottom: 8, padding: 12 }} onPress={() => { setEdit(v); setHh(v.households ? String(v.households) : ''); setAlt(v.altitude_m ? String(v.altitude_m) : ''); }}>
+          <Card key={v.id} style={{ marginBottom: 8, padding: 12 }} onPress={() => { setEdit(v); setHh(v.households ? String(v.households) : ''); setAlt(v.altitude_m ? String(v.altitude_m) : '');
+            setLat(v.lat?.toString() ?? ''); setLon(v.lon?.toString() ?? ''); }}>
             <Row>
               <Text v="small" color={districtColor(v.district)} style={{ fontFamily: FONT.heavy, width: 40 }}>{v.code}</Text>
               <View style={{ flex: 1 }}>
@@ -66,6 +75,21 @@ export default function AdminVillages() {
         <View style={{ gap: 12 }}>
           <Input label="Households in the village" value={hh} onChangeText={setHh} keyboardType="numeric" placeholder="e.g. 140" />
           <Input label="Altitude (metres, optional)" value={alt} onChangeText={setAlt} keyboardType="numeric" placeholder="e.g. 3500" />
+          <Text v="label" muted style={{ marginTop: 6 }}>Position on the map</Text>
+          <Text v="caption" faint>
+            {edit?.location_source === 'manual' ? 'Set by hand.' : edit?.lat ? 'Approximate, from OpenStreetMap — please check.' : 'Not placed yet.'}
+            {' '}Standing in the village? Use your phone’s location.
+          </Text>
+          <Row gap={10}>
+            <Input label="Latitude" value={lat} onChangeText={setLat} keyboardType="numeric" placeholder="34.16" style={{ flex: 1 }} />
+            <Input label="Longitude" value={lon} onChangeText={setLon} keyboardType="numeric" placeholder="77.58" style={{ flex: 1 }} />
+          </Row>
+          <Button title="Use my current location" icon="crosshair" kind="secondary" small loading={locating} style={{ alignSelf: 'flex-start' }}
+            onPress={async () => {
+              setLocating(true);
+              try { const p = await currentPosition(); setLat(p.lat.toFixed(5)); setLon(p.lon.toFixed(5)); toast(`Location found (within about ${Math.round(p.accuracy)} m)`); }
+              catch (e: any) { toast(e.message, 'error'); } finally { setLocating(false); }
+            }} />
         </View>
       </Sheet>
       <Sheet visible={adding} onClose={() => setAdding(false)} title="Add a village" footer={<Button title="Add village" disabled={!nv.name.trim()} onPress={add} />}>

@@ -12,7 +12,7 @@ import {
 } from '@dyeskit/core';
 import { audit, type Db } from './db';
 import { hashPassword } from './auth';
-import { nextHouseholdCode, rescore, saveAnswers, newId } from './data';
+import { currentRound, nextHouseholdCode, rescore, saveAnswers, newId } from './data';
 
 export const DEMO_USERS = [
   { name: 'Project Admin', email: 'admin@dyeskit.org', role: 'admin', password: 'Admin@123' },
@@ -144,33 +144,49 @@ export async function seedIfEmpty(db: Db) {
     ['Dolma Angmo', 'dolma@dyeskit.org', '+911234500022', hashPassword('Pending@123')]);
 
   const rnd = mulberry32(20261002);
+  // two rounds, so the demo can show change over time: last year's (closed) and this year's
+  const thisRound = (await currentRound(db)).id;
+  const year = new Date().getFullYear();
+  const lastRound = (await db.query<{ id: number }>(
+    `INSERT INTO rounds (name, started_at, closed_at) VALUES ($1, now() - interval '400 days', now() - interval '181 days') RETURNING id`, [String(year - 1)])).rows[0].id;
+  await db.query('UPDATE rounds SET name=$1, started_at = now() - interval \'180 days\' WHERE id=$2', [String(year), thisRound]);
   const villageIds: number[] = [];
   let surveys = 0;
-  for (const [district, code, households, altitude, lat, lon, profile] of DEMO_VILLAGES) {
+  for (const [district, code, households, altitude, , , profile] of DEMO_VILLAGES) {   // (positions: from OpenStreetMap)
     const v = await db.query<{ id: number; name: string }>(
-      'UPDATE villages SET households=$1, altitude_m=$2, lat=$3, lon=$4 WHERE district=$5 AND code=$6 RETURNING id, name',
-      [households, altitude, lat, lon, district, code]);
+      'UPDATE villages SET households=$1, altitude_m=$2 WHERE district=$3 AND code=$4 RETURNING id, name',   // positions come from OpenStreetMap
+      [households, altitude, district, code]);
     if (!v.rows.length) throw new Error(`Demo village ${district}/${code} is not in the official list`);
     const villageId = v.rows[0].id;
     villageIds.push(villageId);
     const n = Math.max(12, Math.round(households * (0.3 + rnd() * 0.14)));
     await db.tx(async q => {
-      for (let i = 0; i < n; i++) {
-        const { seq, code: hhCode } = await nextHouseholdCode(q, villageId);
-        const when = new Date(Date.now() - Math.floor(rnd() * 240) * 864e5 - Math.floor(rnd() * 8) * 36e5);
-        const hh = await q.query<{ id: number }>('INSERT INTO households (code, village_id, seq, head_name, created_at, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
-          [hhCode, villageId, seq, `${NAMES[Math.floor(rnd() * NAMES.length)]} household`, when, ids.collector]);
+      const addSurvey = async (householdId: number, when: Date, roundId: number, quality: number) => {
         const id = newId();
         const status = rnd() < 0.82 ? 'approved' : rnd() < 0.75 ? 'submitted' : 'rejected';
         const minutes = Math.round(14 + rnd() * 22);
-        await q.query(`INSERT INTO submissions (id, household_id, village_id, collector_id, questionnaire_version, status, consent, started_at, submitted_at, duration_min, reviewed_by, reviewed_at, review_note)
-          VALUES ($1,$2,$3,$4,$5,$6,true,$7,$8,$9,$10,$11,$12)`,
-          [id, hh.rows[0].id, villageId, ids.collector, QUESTIONNAIRE_VERSION, status, new Date(when.getTime() - minutes * 6e4), when, minutes,
+        await q.query(`INSERT INTO submissions (id, household_id, village_id, collector_id, questionnaire_version, status, consent, started_at, submitted_at, duration_min, reviewed_by, reviewed_at, review_note, round_id)
+          VALUES ($1,$2,$3,$4,$5,$6,true,$7,$8,$9,$10,$11,$12,$13)`,
+          [id, householdId, villageId, ids.collector, QUESTIONNAIRE_VERSION, status, new Date(when.getTime() - minutes * 6e4), when, minutes,
             status === 'submitted' ? null : ids.supervisor, status === 'submitted' ? null : when,
-            status === 'rejected' ? 'BMI looks mis-typed; please re-measure.' : null]);
-        await saveAnswers(q, id, demoAnswers(district, profile, rnd), null, null, true);
+            status === 'rejected' ? 'BMI looks mis-typed; please re-measure.' : null, roundId]);
+        await saveAnswers(q, id, demoAnswers(district, quality, rnd), null, null, true);
         await rescore(q, id);
         surveys++;
+      };
+      for (let i = 0; i < n; i++) {
+        const { seq, code: hhCode } = await nextHouseholdCode(q, villageId);
+        const daysAgo = Math.floor(rnd() * 240);
+        const when = new Date(Date.now() - daysAgo * 864e5 - Math.floor(rnd() * 8) * 36e5);
+        const hh = await q.query<{ id: number }>('INSERT INTO households (code, village_id, seq, head_name, created_at, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+          [hhCode, villageId, seq, `${NAMES[Math.floor(rnd() * NAMES.length)]} household`, when, ids.collector]);
+        if (daysAgo > 180) {
+          // surveyed in last year's round; about two in three were surveyed again this year, a little better off
+          await addSurvey(hh.rows[0].id, when, lastRound, profile);
+          if (rnd() < 0.65) await addSurvey(hh.rows[0].id, new Date(Date.now() - Math.floor(rnd() * 120) * 864e5), thisRound, Math.min(0.95, profile + 0.05));
+        } else {
+          await addSurvey(hh.rows[0].id, when, thisRound, profile);
+        }
       }
       await q.query('INSERT INTO notes (village_id, dim, note, author_id) VALUES ($1,$2,$3,$4)', [villageId, 'env',
         `${v.rows[0].name}: households describe the ${altitude > 3500 ? 'stream drying by late summer' : 'yura running low in August'}; ` +

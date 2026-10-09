@@ -23,11 +23,21 @@ export default function Insights() {
       <Hero compact colors={GRADIENTS.violet}>
         <Text v="title" color="#fff">Insights</Text>
         <Text v="body" color="rgba(255,255,255,0.88)" style={{ marginTop: 2 }}>
-          Plain-language findings. Every one is a count you can check — no guessing, no AI.
+          Plain-language findings. Every one is a count you can check.
         </Text>
       </Hero>
     }>
       <View style={{ paddingHorizontal: SPACE.lg }}>
+        <Card onPress={() => router.push('/assistant')} style={{ marginTop: SPACE.md }}>
+          <Row gap={12}>
+            <IconDisc icon="message-circle" color={c.brand} size={42} />
+            <View style={{ flex: 1 }}>
+              <Text v="h3">Ask the data</Text>
+              <Text v="caption" muted>“Which villages need the most help?” — answers with the numbers behind them</Text>
+            </View>
+            <Feather name="chevron-right" size={20} color={c.ink3} />
+          </Row>
+        </Card>
         <FilterBar show={['district', 'village', 'period', 'gender', 'age', 'religion']} />
         {q.isLoading ? <Loading label="Reading the surveys…" /> : q.error ? <ErrorBox error={q.error} onRetry={() => q.refetch()} /> : !d || !d.villages.length ? (
           <Empty icon="search" title="No surveys in this view" sub="Change the filters to see insights." />

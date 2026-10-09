@@ -30,7 +30,7 @@ export default function Users() {
   });
   const patch = useMutation({
     mutationFn: ({ id, body }: { id: number; body: object }) => api(`/api/users/${id}`, { method: 'PATCH', body }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); toast('Saved'); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); qc.invalidateQueries({ queryKey: ['alerts'] }); toast('Saved'); },
     onError: (e: Error) => toast(e.message, 'error'),
   });
 

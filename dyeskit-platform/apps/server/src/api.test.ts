@@ -412,3 +412,114 @@ test('too many sign-in attempts from one address are refused for a while', async
   assert.match(r.json().error, /Too many attempts/);
   await limited.close();
 });
+
+/* --------------------------------------------------------- alerts, duplicates, rounds */
+test('alerts: approvals for admins, reviews for supervisors, sent-back surveys for the person who sent them', async () => {
+  await call('POST', '/api/auth/register', undefined, { name: 'Waiting Staff', email: 'wait@t.org', password: 'Passw0rd1', kind: 'staff', acceptPrivacy: true });
+  const admin = (await call('GET', '/api/alerts', 'admin2')).body;
+  assert.ok(admin.pendingUsers >= 1);
+  const sup = (await call('GET', '/api/alerts', 'supervisor')).body;
+  assert.equal(sup.pendingUsers, 0);                      // supervisors do not approve people
+  assert.ok(sup.waitingReview >= 0);
+  // send Sonam's approved survey back… then Sonam sees it, fixes it, and it is waiting again
+  const mine = (await call('GET', '/api/submissions', 'sonam')).body.rows[0];
+  await call('POST', `/api/submissions/${mine.id}/review`, 'supervisor', { status: 'rejected', note: 'Please check the household size' });
+  const sonam = (await call('GET', '/api/alerts', 'sonam')).body;
+  assert.equal(sonam.sentBack.length, 1);
+  assert.equal(sonam.sentBack[0].note, 'Please check the household size');
+  await call('PATCH', `/api/submissions/${mine.id}`, 'sonam', { answers: { A7: 6 } });
+  assert.equal((await call('GET', '/api/alerts', 'sonam')).body.sentBack.length, 0);
+  assert.equal((await call('GET', `/api/submissions/${mine.id}`, 'sonam')).body.submission.status, 'submitted');
+});
+
+test('likely duplicates in the same village are flagged for a look', async () => {
+  const stok = await villageId('leh', 'STO');
+  const a = randomUUID(), b = randomUUID();
+  await call('POST', '/api/sync', 'admin2', { surveys: [
+    { client_id: a, village_id: stok, consent: true, head_name: 'Dorje Namgyal', answers: fullAnswers },
+    { client_id: b, village_id: stok, consent: true, head_name: 'dorje  namgyal', answers: fullAnswers },
+  ] });
+  const rows = (await call('GET', `/api/submissions?village_id=${stok}&flagged=1`, 'supervisor')).body.rows;
+  const dupA = rows.find((r: any) => r.id === a);
+  assert.ok(dupA, 'first survey flagged');
+  assert.match(dupA.issues.map((i: any) => i.label).join(' '), /Possible duplicate of L_STO_\d{3} \(same head of household/);
+  const detail = (await call('GET', `/api/submissions/${b}`, 'supervisor')).body;
+  assert.ok(detail.issues.some((i: any) => i.id === 'duplicate'));
+});
+
+test('survey rounds: a new round, repeat surveys keep their household code, one survey per household per round', async () => {
+  const stok = await villageId('leh', 'STO');
+  const before = (await call('GET', '/api/dashboard', 'supervisor')).body.headline.surveys;
+  assert.ok(before > 0);
+  assert.equal((await call('POST', '/api/rounds', 'supervisor', { name: '2027' })).status, 403);
+  assert.equal((await call('POST', '/api/rounds', 'admin2', { name: '2027' })).status, 200);
+  assert.equal((await call('POST', '/api/rounds', 'admin2', { name: '2027' })).status, 409);
+  const meta = (await call('GET', '/api/meta', 'supervisor')).body;
+  assert.equal(meta.rounds.length, 2);
+  assert.equal(meta.rounds.find((r: any) => r.id === meta.currentRoundId).name, '2027');
+
+  // dashboards show the new (empty) round by default; every round on request
+  assert.equal((await call('GET', '/api/dashboard', 'supervisor')).body.headline.surveys, 0);
+  assert.equal((await call('GET', '/api/dashboard?round=all', 'supervisor')).body.headline.surveys, before);
+
+  // survey a Stok household again: same code
+  const hh = (await call('GET', `/api/households?village_id=${stok}`, 'admin2')).body.rows;
+  const target = hh.find((h: any) => !h.surveyedThisRound);
+  const again = (await call('POST', '/api/sync', 'admin2', { surveys: [{ client_id: randomUUID(), village_id: stok, household_id: target.id, consent: true, answers: fullAnswers }] })).body.results[0];
+  assert.equal(again.ok, true);
+  assert.equal(again.household_code, target.code);
+  assert.equal(again.round, '2027');
+  const twice = (await call('POST', '/api/sync', 'admin2', { surveys: [{ client_id: randomUUID(), village_id: stok, household_id: target.id, consent: true, answers: fullAnswers }] })).body.results[0];
+  assert.equal(twice.ok, false);
+  assert.match(twice.error, /already been surveyed in the 2027 round/);
+  // a household from another village is refused
+  const padum = await villageId('zanskar', 'PDM');
+  assert.equal((await call('POST', '/api/sync', 'admin2', { surveys: [{ client_id: randomUUID(), village_id: padum, household_id: target.id, consent: true, answers: fullAnswers }] })).body.results[0].ok, false);
+
+  // the comparison: this group, round by round
+  const d = (await call('GET', `/api/dashboard?village_id=${stok}`, 'supervisor')).body;
+  assert.deepEqual(d.rounds.map((r: any) => r.name), [String(new Date().getFullYear()), '2027'].filter((x, i, a) => a.indexOf(x) === i));
+  assert.equal(d.rounds[d.rounds.length - 1].n, 1);
+});
+
+test('a household member fills in again in the new round, as the same household', async () => {
+  const before = (await call('GET', '/api/submissions', 'sonam')).body.rows;   // household members see every round
+  const dsk = await villageId('nubra', 'DSK');
+  const r = (await call('POST', '/api/sync', 'sonam', { surveys: [{ client_id: randomUUID(), village_id: dsk, consent: true, answers: fullAnswers }] })).body.results[0];
+  assert.equal(r.ok, true);
+  assert.equal(r.household_code, before[0].householdCode);                    // same household, same code
+  const second = (await call('POST', '/api/sync', 'sonam', { surveys: [{ client_id: randomUUID(), village_id: dsk, consent: true, answers: fullAnswers }] })).body.results[0];
+  assert.equal(second.ok, false);                                              // one per round
+});
+
+test('the assistant answers staff from totals, picks the right tool, and refuses household members', async () => {
+  delete process.env.ANTHROPIC_API_KEY;                                        // the rule-based answers, no network
+  assert.equal((await call('GET', '/api/assistant', 'supervisor')).body.mode, 'rules');
+  const ask = (question: string, who = 'supervisor') => call('POST', '/api/assistant', who, { question, round: 'all' });
+  const overall = await ask('How are we doing overall?');
+  assert.equal(overall.status, 200);
+  assert.match(overall.body.answer, /scores \d+\.\d out of 100/);
+  assert.equal(overall.body.evidence[0].rows.length, 7);                       // the seven dimensions
+  assert.match((await ask('Compare the districts')).body.evidence[0].title, /Districts/);
+  assert.match((await ask('How is the score calculated?')).body.answer, /fixed points/);
+  assert.match((await ask('What did households in Stok ask for?')).body.answer, /Stok/);
+  assert.match((await ask('Do women score differently from men?')).body.answer, /^By gender/);
+  assert.match((await ask('What problems affect the most households?')).body.answer, /problem/);   // not “old” in “households”
+  // no household code ever appears in an answer
+  for (const q of ['Which villages need the most help?', 'What problems affect the most households?']) {
+    assert.doesNotMatch(JSON.stringify((await ask(q)).body), /[A-Z]_[A-Z]{3}_\d{3}/);
+  }
+  assert.equal((await ask('How are we doing?', 'sonam')).status, 403);
+  assert.equal((await call('POST', '/api/assistant', 'supervisor', { question: '  ' })).status, 400);
+});
+
+test('a printable report for a village or a district, for staff only', async () => {
+  const stok = await villageId('leh', 'STO');
+  const r = await call('GET', `/api/report?village_id=${stok}&round=all`, 'supervisor');
+  assert.equal(r.status, 200);
+  assert.match(r.body, /<h1>Stok<\/h1>/);
+  assert.doesNotMatch(r.body, /[A-Z]_[A-Z]{3}_\d{3}/);                        // totals only
+  assert.match((await call('GET', '/api/report?district=leh', 'analyst')).body, /Leh district/);
+  assert.equal((await call('GET', '/api/report', 'supervisor')).status, 400);
+  assert.equal((await call('GET', `/api/report?village_id=${stok}`, 'sonam')).status, 403);
+});

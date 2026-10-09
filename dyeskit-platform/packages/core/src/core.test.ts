@@ -208,3 +208,27 @@ test('phone numbers are stored in one form however they are typed', () => {
   assert.equal(normalizePhone('+44 7700 900123'), '+447700900123');
   assert.equal(maskPhone('+919876543210'), '+91 ••••• 43210');
 });
+
+/* ------------------------------------------------------------ duplicates */
+import { findDuplicates, nameKey } from './index';
+
+test('duplicates: same village and round, same phone or same full head name', () => {
+  assert.equal(nameKey("Tsering  Dolkar's household"), 'tsering dolkar');
+  assert.equal(nameKey('Tsering household'), null);                 // one name is not enough
+  const base = { villageId: 1, roundId: 1, headName: null, phone: null };
+  const rows = [
+    { ...base, id: 'a', householdId: 1, householdCode: 'L_CHL_001', headName: 'Tsering Dolkar', phone: '98765 43210' },
+    { ...base, id: 'b', householdId: 2, householdCode: 'L_CHL_002', headName: 'tsering dolkar' },                  // same name
+    { ...base, id: 'c', householdId: 3, householdCode: 'L_CHL_003', phone: '+919876543210' },                       // same phone
+    { ...base, id: 'd', householdId: 4, householdCode: 'L_CHL_004', headName: 'Tsering Dolkar', villageId: 2 },    // other village
+    { ...base, id: 'e', householdId: 1, householdCode: 'L_CHL_001', headName: 'Tsering Dolkar', roundId: 2 },      // next round: fine
+    { ...base, id: 'f', householdId: 5, householdCode: 'L_CHL_005', headName: 'Tsering household' },
+  ];
+  const d = findDuplicates(rows);
+  assert.match(d.get('a')!.map(i => i.label).join(' | '), /L_CHL_002.*same head/);
+  assert.match(d.get('a')!.map(i => i.label).join(' | '), /L_CHL_003.*same phone/);
+  assert.ok(d.get('b') && d.get('c'));
+  assert.equal(d.get('d'), undefined);
+  assert.equal(d.get('e'), undefined);
+  assert.equal(d.get('f'), undefined);
+});

@@ -266,6 +266,27 @@ const MIGRATIONS: (string | ((q: Queryable) => Promise<void>))[] = [
     }
     await q.query('CREATE UNIQUE INDEX users_phone ON users (phone) WHERE phone IS NOT NULL AND deleted_at IS NULL');
   },
+  /* 5 — survey rounds (2026, 2027…): every survey belongs to one; existing surveys form the first,
+     named after the year the earliest was collected */
+  async q => {
+    await q.query(`CREATE TABLE rounds (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      closed_at TIMESTAMPTZ
+    )`);
+    const first = await q.query<{ y: number | null }>('SELECT extract(year from min(submitted_at))::int AS y FROM submissions');
+    const name = String(first.rows[0].y ?? new Date().getFullYear());
+    const r = await q.query<{ id: number }>('INSERT INTO rounds (name) VALUES ($1) RETURNING id', [name]);
+    await q.query('ALTER TABLE submissions ADD COLUMN round_id INTEGER REFERENCES rounds(id)');
+    await q.query('UPDATE submissions SET round_id = $1', [r.rows[0].id]);
+    await q.query('ALTER TABLE submissions ALTER COLUMN round_id SET NOT NULL');
+    await q.query('CREATE INDEX submissions_household_round ON submissions (household_id, round_id)');
+  },
+  /* 6 — where a village's map position came from: 'osm' (looked up, approximate) or 'manual'.
+     Positions before this came only from demo data, so they are not protected. */
+  `ALTER TABLE villages ADD COLUMN location_source TEXT;
+  `,
 ];
 
 export async function migrate(db: Db) {

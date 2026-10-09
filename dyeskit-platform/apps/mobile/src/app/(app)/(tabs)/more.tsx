@@ -1,32 +1,29 @@
 import React from 'react';
 import { View } from 'react-native';
 import { router, type Href } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import { roleName, ROLES } from '@dyeskit/core';
 import { FONT, GRADIENTS, SPACE, useTheme } from '@/theme';
 import { useAuth, useMeta } from '@/lib/auth';
-import { api } from '@/lib/api';
+import { useAlerts } from '@/lib/alerts';
 import { serverUrl } from '@/lib/config';
 import { Badge, Card, Divider, IconDisc, ListRow, Rise, Row, Screen, SectionTitle, Text, type IconName } from '@/components/ui';
 import { Hero } from '@/components/scenery';
 
-interface Item { title: string; sub: string; icon: IconName; color: string; to?: Href; onPress?: () => void; badge?: number; show?: boolean }
+interface Item { title: string; sub: string; icon: IconName; color: string; to?: Href; onPress?: () => void; badge?: number; badgeWord?: string; show?: boolean }
 
 export default function More() {
   const meta = useMeta();
   const { signOut } = useAuth();
   const { c } = useTheme();
   const R = meta.rights;
-  const pending = useQuery({
-    queryKey: ['users'], enabled: R.manageUsers,
-    queryFn: () => api<{ rows: { status: string }[] }>('/api/users'),
-  });
-  const pendingCount = pending.data?.rows.filter(u => u.status === 'pending').length ?? 0;
+  const alerts = useAlerts();
+  const pendingCount = alerts.data?.pendingUsers ?? 0;
+  const lookCount = alerts.data?.needsLook ?? 0;
 
   const groups: { title: string; items: Item[] }[] = [
     { title: 'Analysis', items: [
-      { title: 'All data', sub: 'Every survey by district, village and household — check, correct or remove', icon: 'database', color: '#E2554F', to: '/data', show: R.review || R.editAny },
+      { title: 'All data', sub: 'Every survey by district, village and household — check, correct or remove', icon: 'database', color: '#E2554F', to: '/data', show: R.review || R.editAny, badge: lookCount, badgeWord: 'to check' },
       { title: 'My survey', sub: 'Your household’s answers and score', icon: 'home', color: '#F59E4B', to: '/collect', show: R.read === 'own' },
       { title: 'Explore analysis', sub: 'Compare groups: gender, age, religion, occupation, education…', icon: 'bar-chart-2', color: '#3B8CF0', to: '/explore', show: R.read !== 'own' },
       { title: 'Surveys', sub: R.review ? 'Review, approve and correct surveys' : 'Every survey you can see', icon: 'clipboard', color: '#14A3A8', to: '/submissions', show: R.read !== 'own' },
@@ -37,6 +34,7 @@ export default function More() {
     ] },
     { title: 'Administration', items: [
       { title: 'Users & approvals', sub: 'Approve registrations, roles, assigned villages', icon: 'users', color: '#F27A36', to: '/admin/users', badge: pendingCount, show: R.manageUsers },
+      { title: 'Survey rounds', sub: 'Start the next year’s round; compare rounds', icon: 'refresh-cw', color: '#22B07D', to: '/admin/rounds', show: R.manageUsers || R.review },
       { title: 'Villages & households', sub: 'Household counts used for the reliability check', icon: 'map', color: '#3B6CF0', to: '/admin/villages', show: R.manageVillages },
       { title: 'Audit log', sub: 'Every sign-in, edit, approval and export', icon: 'list', color: '#E064AA', to: '/admin/audit', show: R.audit },
       { title: 'Recycle bin', sub: 'Deleted surveys, restorable', icon: 'trash-2', color: '#EF5D60', to: '/admin/bin', show: R.delete },
@@ -75,7 +73,7 @@ export default function More() {
                   <View key={it.title}>
                     {i ? <Divider /> : null}
                     <ListRow title={it.title} sub={it.sub} left={<IconDisc icon={it.icon} color={it.color} />}
-                      right={it.badge ? <Badge label={`${it.badge} new`} color={c.danger} /> : undefined}
+                      right={it.badge ? <Badge label={`${it.badge} ${it.badgeWord ?? 'new'}`} color={c.danger} /> : undefined}
                       onPress={() => (it.to ? router.push(it.to) : it.onPress?.())} />
                   </View>
                 ))}

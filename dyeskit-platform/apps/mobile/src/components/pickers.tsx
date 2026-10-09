@@ -69,7 +69,9 @@ export function FilterBar({ show = ['district', 'village', 'period', 'gender', '
   const [picking, setPicking] = useState(false);
   const village = meta.villages.find(v => String(v.id) === filters.village_id);
   const scope = meta.rights.read === 'assigned' ? meta.assigned : null;
+  const roundName = filters.round === 'all' ? 'all rounds' : meta.rounds?.find(r => String(r.id) === filters.round)?.name;
   const summary = [
+    roundName && (filters.round === 'all' ? roundName : `round ${roundName}`),
     filters.district && districtName(filters.district), village?.name,
     filters.period && PERIODS.find(p => p.id === filters.period)?.label, filters.gender, filters.age_group && `age ${filters.age_group}`,
     filters.religion, filters.band && `band ${filters.band}`,
@@ -86,6 +88,14 @@ export function FilterBar({ show = ['district', 'village', 'period', 'gender', '
 
       <Sheet visible={open} onClose={() => setOpen(false)} title="Filter the analysis"
         footer={<Row gap={10}><Button title="Clear all" kind="ghost" onPress={reset} style={{ flex: 1 }} /><Button title="Show results" onPress={() => setOpen(false)} style={{ flex: 1.4 }} /></Row>}>
+        {(meta.rounds?.length ?? 0) > 1 ? <Group title="Survey round">
+          {meta.rounds.map(r => (
+            <Chip key={r.id} label={r.id === meta.currentRoundId ? `${r.name} (current)` : r.name}
+              active={filters.round === String(r.id) || (!filters.round && r.id === meta.currentRoundId)}
+              onPress={() => set({ round: r.id === meta.currentRoundId ? '' : String(r.id) })} />
+          ))}
+          <Chip label="All rounds" active={filters.round === 'all'} onPress={() => set({ round: 'all' })} />
+        </Group> : null}
         {show.includes('district') ? <Group title="District">
           <Chip label="All" active={!filters.district} onPress={() => set({ district: '' })} />
           {DISTRICTS.map(d => <Chip key={d.id} label={d.name} color={districtColor(d.id)} active={filters.district === d.id} onPress={() => set({ district: d.id })} />)}

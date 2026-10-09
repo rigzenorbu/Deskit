@@ -190,6 +190,25 @@ export function computeDashboard(rows: SurveyRow[], villagesInView: VillageInfo[
 
 export type Dashboard = ReturnType<typeof computeDashboard>;
 
+export interface RoundScore { id: number; name: string; n: number; score: number | null; band: number | null; dims: Record<DimensionId, number | null> }
+
+/**
+ * The same group of households (a village, a district, everyone in view) round by round, oldest
+ * first — "was this village better off this year than last?". Rows carry their round.
+ */
+export function compareRounds(rows: (SurveyRow & { roundId: number; roundName: string; roundStartedAt?: string | null })[]): RoundScore[] {
+  const by = new Map<number, { name: string; start: string; rows: SurveyRow[] }>();
+  for (const r of rows) {
+    if (!by.has(r.roundId)) by.set(r.roundId, { name: r.roundName, start: r.roundStartedAt ?? '', rows: [] });
+    by.get(r.roundId)!.rows.push(r);
+  }
+  // oldest first, by when each round started (not by when it was created)
+  return [...by].sort(([a, ga], [b, gb]) => ga.start.localeCompare(gb.start) || a - b).map(([id, g]) => {
+    const s = scoreGroup(g.rows.map(r => r.score));
+    return { id, name: g.name, n: s.n, score: s.score, band: s.band, dims: s.dims };
+  });
+}
+
 /** Below this many surveys a district's numbers are hidden from household members. */
 export const PUBLIC_MIN_SURVEYS = 10;
 

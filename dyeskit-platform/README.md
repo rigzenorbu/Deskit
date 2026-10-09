@@ -48,8 +48,31 @@ dyeskit-platform/
   Self-reported surveys count in dashboards only after a supervisor approves them.
 - **Privacy policy** in the app and public at `/privacy` (needed for the app stores). **Before
   publishing, fill in the organisation details in `packages/core/src/privacy.ts`.**
+- **Survey rounds** (2026, 2027…). Admins start a new round each year (More → Survey rounds).
+  Dashboards show the current round and **"Change since last round"** for Ladakh, each district and
+  each village. A household surveyed again keeps its code (field researchers pick "This household
+  was surveyed before"; a household member's next survey is linked automatically). One survey per
+  household per round.
+- **Duplicate check**: two households in the same village and round with the same phone number or
+  the same household head's full name are flagged "Possible duplicate of …" in All data.
+- **Alerts**: a red dot on More, and banners on Home — people waiting for approval (admins),
+  surveys waiting review and needing a look (supervisors), surveys sent back (the person who sent
+  them; fixing one puts it back in the queue).
 - **Insights** in plain words: priority actions, villages that can learn from each other,
   bright spots — every one a count you can check.
+- **Ask the data** (Insights → Ask the data, staff only): type a question such as "Which villages
+  in Kargil need help?" and get a short answer with the table it came from. It sees only the
+  villages the person may see, and only totals — never a household. Without a key it answers from
+  keyword rules; with `ANTHROPIC_API_KEY` set on the server, Claude reads the question and uses the
+  same tools (see docs/DEPLOYMENT.md). If a request is declined, the API retries it on Anthropic's
+  recommended fallback model; if the AI call fails, the rule-based answer is given instead.
+- **Printable reports**: a one- or two-page A4 report for a village (village page) or a district
+  (All data, or Home with a district chosen) — score, dimensions, change since last round, what
+  needs attention, what households asked for. Save as PDF, print or share; totals only.
+- **Map of villages** (Villages → See them on the map, staff only): every village as a dot coloured
+  by score, sized by surveys, with each district's area shaded. 176 of 251 positions were looked up
+  on OpenStreetMap and are approximate; admins can set or correct any village in Villages &
+  households (type the position, or stand in the village and tap "Use my current location").
 - **Roles**: Admin, Supervisor, Field Researcher, Analyst, Viewer — the same access rules as the
   original platform — plus **Household member**.
 - **Households can fill in their own survey.** Anyone can register as a household member and sign in

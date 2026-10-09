@@ -18,8 +18,10 @@ import { bandLabel, districtName, firstName, fmtDate, fmtMonth, fmtScore, greeti
 import { Badge, BandPill, Button, Card, ErrorBox, Loading, Progress, Rise, Row, Screen, SectionTitle, StatusBadge, Text } from './ui';
 import { BarList, Radar, Ring, ShareBar, TrendChart } from './charts';
 import { Hero, Logo } from './scenery';
+import { AlertsBanner } from './AlertsBanner';
+import { RoundChange } from './RoundChange';
 
-interface Mine { total: number; rows: { id: string; householdCode: string; village: string; district: string; status: string; submittedAt: string; score: number | null; band: number | null }[] }
+interface Mine { total: number; rows: { id: string; householdCode: string; village: string; district: string; status: string; submittedAt: string; score: number | null; band: number | null; roundId: number; round: string }[] }
 
 export function HouseholdHome() {
   const meta = useMeta();
@@ -27,7 +29,10 @@ export function HouseholdHome() {
   const { surveys } = useOutbox();
   const dash = useDashboard();
   const mine = useQuery({ queryKey: ['submissions', 'mine'], queryFn: () => api<Mine>('/api/submissions') });
-  const sent = mine.data?.rows[0] ?? null;
+  // this round's survey; an earlier round's one means it is time to share again
+  const sent = mine.data?.rows.find(r => r.roundId === meta.currentRoundId) ?? null;
+  const earlier = mine.data?.rows.find(r => r.roundId !== meta.currentRoundId) ?? null;
+  const roundName = meta.rounds?.find(r => r.id === meta.currentRoundId)?.name ?? '';
   const detail = useQuery({
     queryKey: ['submission', sent?.id], enabled: !!sent,
     queryFn: () => api<{ score: HouseholdScore }>(`/api/submissions/${sent!.id}`),
@@ -56,6 +61,7 @@ export function HouseholdHome() {
         </Hero>
       }>
       <View style={{ paddingHorizontal: SPACE.lg }}>
+        <AlertsBanner />
         {/* ------------------------------------------------ your household */}
         <SectionTitle title="Your household" />
         <Rise>
@@ -103,7 +109,7 @@ export function HouseholdHome() {
                   <Feather name="edit-3" size={22} color="#fff" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text v="h3">Share your household’s details</Text>
+                  <Text v="h3">{earlier ? `A new round has started (${roundName})` : 'Share your household’s details'}</Text>
                   <Text v="small" muted>About 20 minutes. Private, and for your own good.</Text>
                 </View>
               </Row>
@@ -113,6 +119,11 @@ export function HouseholdHome() {
         </Rise>
 
         {/* -------------------------------------------- Ladakh at a glance */}
+        {earlier && !sent ? (
+          <Text v="small" muted style={{ marginTop: 8 }}>
+            Thank you for taking part in {earlier.round} ({earlier.householdCode}). Please share how your household is doing this year — it shows whether life is getting better.
+          </Text>
+        ) : null}
         <SectionTitle title="Ladakh at a glance" sub="All households together — no one is named" />
         {dash.isLoading ? <Loading /> : dash.error ? <ErrorBox error={dash.error} onRetry={() => dash.refetch()} /> : d ? (
           <>
@@ -146,6 +157,10 @@ export function HouseholdHome() {
             <Card>
               <ShareBar parts={BANDS.map(b => ({ key: String(b.band), label: `${b.band} ${b.short}`, value: d.overall.bands.find(x => x.band === b.band)?.count ?? 0, color: BAND_COLORS[b.band] }))} />
             </Card>
+
+            {d.rounds && d.rounds.length > 1 ? (
+              <View style={{ marginTop: SPACE.xl }}><RoundChange rounds={d.rounds} subject="Ladakh" /></View>
+            ) : null}
 
             {d.trend.length > 1 ? (
               <>

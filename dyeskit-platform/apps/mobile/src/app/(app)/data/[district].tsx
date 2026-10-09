@@ -9,6 +9,7 @@ import { fmtDate } from '@/lib/format';
 import { Button, Card, Chip, Empty, ErrorBox, Loading, Rise, Row, Screen, SearchBar, Text } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
 import { CountBadges, Tally } from '@/components/datacounts';
+import { ReportButton } from '@/components/ReportButton';
 
 type Sort = 'flagged' | 'waiting' | 'surveys' | 'name';
 
@@ -37,8 +38,11 @@ export default function DistrictData() {
               { label: 'need a look', value: d.flagged, color: c.danger },
               { label: 'self-reported', value: d.self, color: c.lake },
             ]} />
-            <Button title={`Every survey in ${d.name}`} icon="list" small kind="secondary" style={{ marginTop: SPACE.md, alignSelf: 'flex-start' }}
-              onPress={() => router.push({ pathname: '/data/village/[id]', params: { id: 'all', district: d.id } })} />
+            <Row wrap gap={10} style={{ marginTop: SPACE.md }}>
+              <Button title={`Every survey in ${d.name}`} icon="list" small kind="secondary"
+                onPress={() => router.push({ pathname: '/data/village/[id]', params: { id: 'all', district: d.id } })} />
+              <ReportButton district={d.id} label={`${d.name} report`} />
+            </Row>
             <View style={{ marginTop: SPACE.lg }}><SearchBar value={search} onChange={setSearch} placeholder="Village or code" /></View>
             <Row wrap gap={8} style={{ marginVertical: SPACE.md }}>
               <Text v="caption" faint>Sort:</Text>

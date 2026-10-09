@@ -30,6 +30,9 @@ export interface LocalSurvey {
   score?: number | null;
   band?: number | null;
   error?: string;
+  /** surveying a household again in a new round: which one (keeps its code) */
+  householdId?: number;
+  previousCode?: string;
 }
 
 let userKey = '';
@@ -61,9 +64,10 @@ export function useOutbox() {
 
 export const getSurvey = (id: string) => surveys.find(s => s.id === id) ?? null;
 
-export async function startSurvey(villageId: number, headName: string, phone: string): Promise<LocalSurvey> {
+export async function startSurvey(villageId: number, headName: string, phone: string, repeat?: { householdId: number; code: string }): Promise<LocalSurvey> {
   const now = new Date().toISOString();
-  const s: LocalSurvey = { id: randomUUID(), villageId, headName, phone, consent: true, answers: {}, status: 'draft', startedAt: now, updatedAt: now };
+  const s: LocalSurvey = { id: randomUUID(), villageId, headName, phone, consent: true, answers: {}, status: 'draft', startedAt: now, updatedAt: now,
+    ...(repeat ? { householdId: repeat.householdId, previousCode: repeat.code } : {}) };
   surveys = [s, ...surveys];
   emit();
   await persist();
@@ -100,7 +104,7 @@ export async function syncNow(): Promise<{ uploaded: number; failed: number; off
         method: 'POST',
         body: {
           surveys: waiting.map(s => ({
-            client_id: s.id, village_id: s.villageId, head_name: s.headName || null, phone: s.phone || null, consent: s.consent,
+            client_id: s.id, village_id: s.villageId, household_id: s.householdId ?? null, head_name: s.headName || null, phone: s.phone || null, consent: s.consent,
             answers: s.answers, started_at: s.startedAt, submitted_at: s.submittedAt,
             duration_min: s.submittedAt ? Math.round((Date.parse(s.submittedAt) - Date.parse(s.startedAt)) / 60000) : null,
           })),

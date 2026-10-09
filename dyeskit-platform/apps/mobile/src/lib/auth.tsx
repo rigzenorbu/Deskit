@@ -13,12 +13,15 @@ export interface User { id: number; name: string; email: string | null; phone: s
 export interface VillageMeta {
   id: number; district: string; code: string; name: string; gazette_name: string | null; subdivision: string | null;
   block: string | null; households: number; altitude_m: number | null; official: boolean; surveys: number;
+  lat: number | null; lon: number | null; location_source: string | null;
 }
 export interface Meta {
   user: User; rights: Rights; assigned: number[];
   districts: District[]; villages: VillageMeta[]; collectors: { id: number; name: string }[]; roles: typeof ROLES;
   questionnaire: { version: string; sections: Section[]; consent: string };
   dimensions: typeof DIMENSIONS; bands: typeof BANDS; scoringVersion: string;
+  rounds: { id: number; name: string; started_at: string; closed_at: string | null; surveys: number }[];
+  currentRoundId: number;
 }
 
 type Status = 'loading' | 'signedOut' | 'signedIn';

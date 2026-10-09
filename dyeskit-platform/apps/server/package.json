@@ -12,6 +12,7 @@
     "reset": "rm -rf data && tsx src/index.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.1",
     "@dyeskit/core": "*",
     "@electric-sql/pglite": "^0.5.8",
     "@fastify/cors": "^11.0.0",
