@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   DISTRICTS, OFFICIAL_VILLAGES, SECTIONS, ITEMS, SCORED_ITEMS, DIM_ITEMS, DIMENSIONS, BANDS,
   scoreHousehold, scoreGroup, scoreQuestion, bmiPoints, bandFor, householdCode, HOUSEHOLD_CODE_PATTERN,
-  SIGNALS, computeDashboard,
+  SIGNALS, computeDashboard, surveyProgress, milestoneFor, isShown,
 } from './index';
 
 /* ------------------------------------------------------------ districts */
@@ -231,4 +231,29 @@ test('duplicates: same village and round, same phone or same full head name', ()
   assert.equal(d.get('d'), undefined);
   assert.equal(d.get('e'), undefined);
   assert.equal(d.get('f'), undefined);
+});
+
+test('progress counts only the questions showing, and 100% means every one answered', () => {
+  const empty = surveyProgress({});
+  assert.equal(empty.percent, 0);
+  assert.ok(empty.total > 40);
+  // answering every question that shows reaches 100%
+  const all: Record<string, unknown> = {};
+  for (let i = 0; i < 3; i++) {
+    for (const s of SECTIONS) for (const it of s.items) {
+      if (it.type === 'text' || !isShown(it, all)) continue;
+      all[it.id] = it.options?.length ? (it.type === 'multi' || it.type === 'rank3' ? [it.options[0].v] : it.options[0].v) : it.type === 'measure' ? { height_cm: 160, weight_kg: 60 } : 3;
+    }
+  }
+  const full = surveyProgress(all);
+  assert.equal(full.percent, 100);
+  assert.equal(full.left, 0);
+  // one open question keeps it below 100, and empty lists do not count as answered
+  const oneLeft = { ...all, [Object.keys(all)[3]]: [] };
+  assert.ok(surveyProgress(oneLeft).percent < 100);
+  assert.equal(surveyProgress(oneLeft).left, 1);
+  assert.equal(milestoneFor(0).at, 0);
+  assert.equal(milestoneFor(49).at, 25);
+  assert.equal(milestoneFor(50).at, 50);
+  assert.equal(milestoneFor(100).at, 100);
 });

@@ -7,5 +7,6 @@ export * from './roles';
 export * from './codes';
 export * from './quality';
 export * from './phone';
+export * from './progress';
 export * from './privacy';
 export * from './village-locations';

@@ -10,7 +10,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import { randomUUID } from 'expo-crypto';
-import { SECTIONS, type Answers } from '@dyeskit/core';
+import { surveyProgress, type Answers } from '@dyeskit/core';
 import { api } from './api';
 import { getJson, setJson } from './storage';
 
@@ -140,6 +140,5 @@ export async function syncNow(): Promise<{ uploaded: number; failed: number; off
 /** Put a refused survey back to draft so it can be corrected. */
 export const reopenSurvey = (id: string) => updateSurvey(id, { status: 'draft', error: undefined });
 
-/** How far through the questionnaire a survey is, 0–100 (questions that always show). */
-const ANSWERABLE = SECTIONS.flatMap(s => s.items).filter(i => i.type !== 'text' && !i.showIf).length;
-export const progressOf = (s: LocalSurvey) => Math.min(100, Math.round((Object.keys(s.answers).length / ANSWERABLE) * 100));
+/** How far through the questionnaire a survey is, 0–100 (the questions showing for this household). */
+export const progressOf = (s: LocalSurvey) => surveyProgress(s.answers).percent;

@@ -5,12 +5,12 @@ import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown, FadeInRight, ZoomIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { DIMENSIONS, SECTIONS, isShown, scoreHousehold, type Answers, type Section } from '@dyeskit/core';
+import { DIMENSIONS, ITEMS, MIN_FILLED_TO_FINISH, PROGRESS_MILESTONES, SECTIONS, isShown, milestoneFor, scoreHousehold, surveyProgress, type Answers, type Section } from '@dyeskit/core';
 import { DIM_COLORS, FONT, PRAYER_FLAGS, RADIUS, SPACE, bandColor, useTheme } from '@/theme';
 import { useMeta } from '@/lib/auth';
 import { finishSurvey, getSurvey, updateSurvey, useOutbox } from '@/lib/outbox';
 import { bandLabel, districtName } from '@/lib/format';
-import { BandPill, Button, Card, IconButton, Loading, Row, Text, success, toast } from '@/components/ui';
+import { BandPill, Button, Card, IconButton, Loading, Row, Sheet, Text, success, toast } from '@/components/ui';
 import { QuestionInput } from '@/components/questions';
 import { Radar, Ring } from '@/components/charts';
 
@@ -48,6 +48,17 @@ export default function SurveyScreen() {
   useEffect(() => { if (ready.current && village && !answers.A1) setAnswers(a => ({ ...a, A1: village.name })); }, [village, survey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const score = useMemo(() => scoreHousehold(answers), [answers]);
+  const fill = useMemo(() => surveyProgress(answers), [answers]);
+  const [askFinish, setAskFinish] = useState(false);
+  // cheer each milestone as it is passed (not the ones already passed when the survey opens)
+  const passed = useRef<number | null>(null);
+  useEffect(() => {
+    if (!ready.current) return;
+    const m = milestoneFor(fill.percent).at;
+    if (passed.current === null) { passed.current = m; return; }
+    if (m > passed.current) { success(); toast(`${fill.percent === 100 ? '🎉' : '⛰️'} ${milestoneFor(fill.percent).title}`); }
+    passed.current = m;
+  }, [fill.percent]);
   if (!loaded) return <View style={{ flex: 1, backgroundColor: c.bg, justifyContent: 'center' }}><Loading label="Opening the survey…" /></View>;
   if (!survey || !village) {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: c.bg }}><Text v="h3">This survey is not on this phone.</Text><Button title="Back" onPress={() => router.back()} style={{ marginTop: 16 }} /></View>;
@@ -57,7 +68,6 @@ export default function SurveyScreen() {
   const isReview = step === SECTIONS.length;
   const section: Section | null = isReview ? null : SECTIONS[step];
   const accent = section ? SECTION_COLOR[section.id] : '#14A3A8';
-  const progress = (step / SECTIONS.length) * 100;
   const missing = REQUIRED.filter(i => answers[i.id] === undefined || answers[i.id] === '');
   const go = (n: number) => { setStep(n); scroller.current?.scrollTo({ y: 0, animated: false }); };
   const set = (itemId: string) => (v: unknown) => setAnswers(a => {
@@ -68,8 +78,16 @@ export default function SurveyScreen() {
     return next;
   });
 
-  const finish = async () => {
+  const firstOpen = () => go(Math.max(0, fill.sections.findIndex(x => x.missing.length)));
+  const finish = async (confirmed = false) => {
     if (missing.length) { toast(`Please answer: ${missing.map(m => m.q).join(', ')}`, 'error'); return; }
+    if (fill.percent < MIN_FILLED_TO_FINISH) {
+      toast(`Fill at least ${MIN_FILLED_TO_FINISH}% to finish — ${fill.percent}% so far`, 'error');
+      firstOpen();
+      return;
+    }
+    if (fill.left && !confirmed) { setAskFinish(true); return; }
+    setAskFinish(false);
     setSending(true);
     await updateSurvey(survey.id, { answers });
     const r = await finishSurvey(survey.id);
@@ -95,13 +113,20 @@ export default function SurveyScreen() {
               <Text v="caption" color="rgba(255,255,255,0.8)" style={{ fontSize: 9.5 }}>so far</Text>
             </View>
           </Row>
-          <Summit progress={progress} />
+          <Summit progress={fill.percent} />
+          <Row style={{ marginTop: 6, justifyContent: 'space-between' }}>
+            <Text v="caption" color="#fff" style={{ fontFamily: FONT.bold }}>{fill.percent}% filled</Text>
+            <Text v="caption" color="rgba(255,255,255,0.85)">{fill.left ? `${fill.left} question${fill.left === 1 ? '' : 's'} left` : 'all answered'}</Text>
+          </Row>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginTop: 10 }}>
             {[...SECTIONS, null].map((s, i) => (
               <Pressable key={s?.id ?? 'review'} onPress={() => go(i)}
                 style={{ paddingHorizontal: 10, height: 28, borderRadius: 14, justifyContent: 'center',
                   backgroundColor: i === step ? '#fff' : i < step ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.15)' }}>
-                <Text v="caption" color={i === step ? accent : '#fff'} style={{ fontFamily: FONT.bold }}>{s ? s.short : 'Finish'}</Text>
+                <Row gap={4}>
+                  {s && fill.sections[i].total && !fill.sections[i].missing.length ? <Feather name="check" size={12} color={i === step ? accent : '#fff'} /> : null}
+                  <Text v="caption" color={i === step ? accent : '#fff'} style={{ fontFamily: FONT.bold }}>{s ? s.short : 'Finish'}</Text>
+                </Row>
               </Pressable>
             ))}
           </ScrollView>
@@ -111,6 +136,7 @@ export default function SurveyScreen() {
       <ScrollView ref={scroller} keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: SPACE.lg, paddingBottom: 140, maxWidth: 760, width: '100%', alignSelf: 'center' }}>
         {section ? (
           <Animated.View key={section.id} entering={FadeInRight.duration(320)}>
+            <Encourage percent={fill.percent} left={fill.left} />
             {section.note ? (
               <Row style={{ backgroundColor: accent + '16', borderRadius: RADIUS.md, padding: 12, marginBottom: SPACE.md }}>
                 <Feather name="info" size={16} color={accent} /><Text v="small" style={{ flex: 1 }}>{section.note}</Text>
@@ -156,6 +182,22 @@ export default function SurveyScreen() {
                 </Row>
               ))}
             </Card>
+            <View style={{ marginTop: SPACE.md }}><Encourage percent={fill.percent} left={fill.left} /></View>
+            {fill.left && !missing.length ? (
+              <Card style={{ borderLeftWidth: 4, borderLeftColor: c.warning }}>
+                <Text v="h3">Questions not answered yet ({fill.left})</Text>
+                <Text v="small" muted style={{ marginTop: 2 }}>Tap one to answer it. “Don’t know” is an answer too.</Text>
+                {fill.sections.filter(x => x.missing.length).map(x => {
+                  const i = SECTIONS.findIndex(sec => sec.id === x.id);
+                  return (
+                    <Pressable key={x.id} onPress={() => go(i)} style={{ marginTop: 10 }}>
+                      <Text v="small" style={{ fontFamily: FONT.bold }} color={SECTION_COLOR[x.id]}>{SECTIONS[i].title} · {x.missing.length} left →</Text>
+                      <Text v="caption" muted numberOfLines={2}>{x.missing.slice(0, 3).map(id => ITEMS[id]?.q).join(' · ')}{x.missing.length > 3 ? ' …' : ''}</Text>
+                    </Pressable>
+                  );
+                })}
+              </Card>
+            ) : null}
             {missing.length ? (
               <Card style={{ marginTop: SPACE.md, borderLeftWidth: 4, borderLeftColor: c.danger }}>
                 <Text v="h3">Still needed</Text>
@@ -179,12 +221,38 @@ export default function SurveyScreen() {
         <Row gap={10} style={{ maxWidth: 760, width: '100%', alignSelf: 'center' }}>
           <Button title="Back" kind="ghost" icon="chevron-left" disabled={step === 0} onPress={() => go(step - 1)} style={{ flex: 1 }} />
           {isReview
-            ? <Button title="Finish & upload" icon="upload-cloud" loading={sending} onPress={finish} style={{ flex: 2 }} gradient={['#22B07D', '#14A3A8']} />
+            ? <Button title={fill.percent < MIN_FILLED_TO_FINISH ? `Fill ${MIN_FILLED_TO_FINISH}% to finish` : 'Finish & upload'} icon="upload-cloud" loading={sending} onPress={() => finish()} style={{ flex: 2 }}
+                gradient={fill.percent < MIN_FILLED_TO_FINISH ? ['#8A94AD', '#6B7590'] : ['#22B07D', '#14A3A8']} />
             : <Button title={step === SECTIONS.length - 1 ? 'Review' : `Next: ${SECTIONS[step + 1].short}`} icon="chevron-right" onPress={() => go(step + 1)} style={{ flex: 2 }}
                 gradient={[accent, SECTION_COLOR[SECTIONS[Math.min(step + 1, SECTIONS.length - 1)].id]]} />}
         </Row>
       </View>
+
+      <Sheet visible={askFinish} onClose={() => setAskFinish(false)} title={`${fill.left} question${fill.left === 1 ? '' : 's'} still open`}
+        footer={<View style={{ gap: 10 }}>
+          <Button title="Answer the rest" icon="edit-3" onPress={() => { setAskFinish(false); firstOpen(); }} />
+          <Button title="Finish anyway" kind="ghost" onPress={() => finish(true)} />
+        </View>}>
+        <Text v="body">You have filled {fill.percent}% of the survey. A complete survey gives the fairest score — and it takes only a minute or two more.</Text>
+      </Sheet>
     </View>
+  );
+}
+
+/** A short word of encouragement, matched to how far the survey has got. */
+function Encourage({ percent, left }: { percent: number; left: number }) {
+  const { c } = useTheme();
+  const m = milestoneFor(percent);
+  const next = PROGRESS_MILESTONES.find(x => x.at > percent);
+  const color = percent >= 100 ? c.success : percent >= MIN_FILLED_TO_FINISH ? c.lake : c.apricot;
+  return (
+    <Row style={{ backgroundColor: color + '18', borderRadius: RADIUS.md, padding: 12, marginBottom: SPACE.md, alignItems: 'flex-start' }} gap={10}>
+      <Feather name={percent >= 100 ? 'award' : 'trending-up'} size={18} color={color} />
+      <View style={{ flex: 1 }}>
+        <Text v="small" style={{ fontFamily: FONT.bold }} color={color}>{m.title} — {percent}%</Text>
+        <Text v="caption" muted style={{ marginTop: 2 }}>{m.text}{next && left && next.at > MIN_FILLED_TO_FINISH ? ` Next stop: ${next.at}%.` : ''}</Text>
+      </View>
+    </Row>
   );
 }
 
