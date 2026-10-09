@@ -9,7 +9,7 @@ import { getJson, setJson, kv } from './storage';
 import { secure } from './secure';
 import { loadServerOverride } from './config';
 
-export interface User { id: number; name: string; email: string; phone: string | null; role: string; status: string }
+export interface User { id: number; name: string; email: string | null; phone: string | null; role: string; status: string }
 export interface VillageMeta {
   id: number; district: string; code: string; name: string; gazette_name: string | null; subdivision: string | null;
   block: string | null; households: number; altitude_m: number | null; official: boolean; surveys: number;
@@ -27,6 +27,8 @@ interface AuthState {
   meta: Meta | null;
   offline: boolean;
   signIn: (email: string, password: string) => Promise<void>;
+  /** sign in with a token already issued (phone code, or registration) */
+  acceptToken: (token: string) => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -78,20 +80,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, [clear, refresh]);
 
-  const signIn = useCallback(async (email: string, password: string) => {
-    const r = await api<{ token: string }>('/api/auth/login', { method: 'POST', body: { email, password } });
-    setToken(r.token);
-    await secure.set(TOKEN, r.token);
+  const acceptToken = useCallback(async (token: string) => {
+    setToken(token);
+    await secure.set(TOKEN, token);
     await refresh();
     setStatus('signedIn');
   }, [refresh]);
+
+  const signIn = useCallback(async (email: string, password: string) => {
+    const r = await api<{ token: string }>('/api/auth/login', { method: 'POST', body: { email, password } });
+    await acceptToken(r.token);
+  }, [acceptToken]);
 
   const signOut = useCallback(async () => {
     try { await api('/api/auth/logout', { method: 'POST' }); } catch { /* offline: forget locally anyway */ }
     await clear();
   }, [clear]);
 
-  const value = useMemo(() => ({ status, meta, offline, signIn, signOut, refresh }), [status, meta, offline, signIn, signOut, refresh]);
+  const value = useMemo(() => ({ status, meta, offline, signIn, acceptToken, signOut, refresh }), [status, meta, offline, signIn, acceptToken, signOut, refresh]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

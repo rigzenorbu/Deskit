@@ -26,6 +26,7 @@ export default function More() {
 
   const groups: { title: string; items: Item[] }[] = [
     { title: 'Analysis', items: [
+      { title: 'All data', sub: 'Every survey by district, village and household — check, correct or remove', icon: 'database', color: '#E2554F', to: '/data', show: R.review || R.editAny },
       { title: 'My survey', sub: 'Your household’s answers and score', icon: 'home', color: '#F59E4B', to: '/collect', show: R.read === 'own' },
       { title: 'Explore analysis', sub: 'Compare groups: gender, age, religion, occupation, education…', icon: 'bar-chart-2', color: '#3B8CF0', to: '/explore', show: R.read !== 'own' },
       { title: 'Surveys', sub: R.review ? 'Review, approve and correct surveys' : 'Every survey you can see', icon: 'clipboard', color: '#14A3A8', to: '/submissions', show: R.read !== 'own' },
@@ -55,7 +56,7 @@ export default function More() {
           </View>
           <View style={{ flex: 1 }}>
             <Text v="h2" color="#fff">{meta.user.name}</Text>
-            <Text v="small" color="rgba(255,255,255,0.85)">{meta.user.email}</Text>
+            <Text v="small" color="rgba(255,255,255,0.85)">{meta.user.email ?? meta.user.phone}</Text>
             <View style={{ marginTop: 6 }}><Badge label={roleName(meta.user.role)} color="#FFFFFF" icon="shield" /></View>
           </View>
         </Row>

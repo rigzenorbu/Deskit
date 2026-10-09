@@ -3,18 +3,21 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import {
   BANDS, CONSENT_TEXT, DIMENSIONS, DISTRICTS, ITEMS, QUESTIONNAIRE_VERSION, ROLES, ROLE_RIGHTS, SCORING_VERSION, SECTIONS,
-  RESPONDENT_SURVEY_LIMIT, computeDashboard, computeInsights, publicDashboard, scoreHousehold, type Role,
+  ORGANISATION, PRIVACY_POLICY, PRIVACY_UPDATED, RESPONDENT_SURVEY_LIMIT, maskPhone, normalizePhone, surveyIssues, computeDashboard, computeInsights, publicDashboard, scoreHousehold, type Role,
 } from '@dyeskit/core';
 import { audit, type Db } from './db';
+import { CODE_MINUTES, checkCode, createCode, createTicket, redeemTicket } from './otp';
+import { phoneSignInAvailable, revealCodes, sendSms } from './sms';
 import {
-  PASSWORD_RULE, assignedVillageIds, bearer, createSession, endSession, eraseUser, hashPassword, passwordOk, rightsOf, scopeOf,
+  NO_PASSWORD, PASSWORD_RULE, assignedVillageIds, bearer, createSession, endSession, eraseUser, hashPassword, passwordOk, rightsOf, scopeOf,
   userFromToken, verifyPassword, type SessionUser,
 } from './auth';
 import {
-  applyFilters, getAnswers, loadRows, newVillageCode, parseFilters, rescore, rescoreOutdated, saveAnswers, storeUpload,
+  applyFilters, counts, getAnswers, loadRows, newVillageCode, parseFilters, rescore, rescoreOutdated, saveAnswers, storeUpload,
   villagesInfo, type UploadedSurvey,
 } from './data';
 
@@ -29,10 +32,17 @@ const fail = (statusCode: number, message: string) => Object.assign(new Error(me
 const need = (cond: unknown, message = 'Your role does not allow this.') => { if (!cond) throw fail(403, message); };
 type Q = Record<string, string | undefined>;
 
-export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
+export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: boolean } = {}) {
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 5 * 1024 * 1024, trustProxy: true });
   // every method the API uses (the plugin's default leaves out PATCH and DELETE)
   await app.register(cors, { origin: true, methods: ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE', 'OPTIONS'] });
+  if (opts.rateLimits !== false) {
+    // a generous cap for everything, and tight limits on sign-in and registration (see limit() below)
+    await app.register(rateLimit, {
+      max: 600, timeWindow: '1 minute',
+      errorResponseBuilder: (_req, ctx) => ({ statusCode: 429, message: `Too many attempts. Please wait ${ctx.after} and try again.` }),
+    });
+  }
 
   app.decorateRequest('user', null);
   app.addHook('preHandler', async req => {
@@ -50,44 +60,135 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
   app.get('/api/health', async () => {
     // demo: true when the demo accounts exist, so the sign-in screen can offer them
     const demo = (await db.query("SELECT 1 FROM users WHERE email = 'admin@dyeskit.org' AND status = 'active'")).rows.length > 0;
-    return { ok: true, database: db.kind, scoring: SCORING_VERSION, questionnaire: QUESTIONNAIRE_VERSION, demo };
+    return { ok: true, database: db.kind, scoring: SCORING_VERSION, questionnaire: QUESTIONNAIRE_VERSION, demo, phoneSignIn: phoneSignInAvailable() };
   });
 
   /* -------------------------------------------------------------- auth */
-  app.post('/api/auth/login', async (req, reply) => {
-    const b = (req.body ?? {}) as { email?: string; password?: string };
-    const email = String(b.email ?? '').trim();
-    const { rows } = await db.query('SELECT * FROM users WHERE lower(email) = lower($1) AND deleted_at IS NULL', [email]);
-    const u = rows[0];
-    if (!u || !verifyPassword(String(b.password ?? ''), u.password_hash)) {
-      await audit(db, null, 'login_failed', 'user', email);
-      return reply.code(401).send({ error: 'That email and password do not match.' });
-    }
-    if (u.status === 'pending') return reply.code(403).send({ error: 'Your registration is waiting for an admin to approve it.', status: 'pending' });
-    if (u.status !== 'active') return reply.code(403).send({ error: 'This account has been disabled. Please contact your admin.', status: u.status });
+  /** Sign-in limits per address (IP): a few tries, then wait. Off in tests that do not test them. */
+  const limit = (max: number, minutes: number) => ({ config: { rateLimit: { max, timeWindow: `${minutes} minutes` } } });
+
+  /** What a successful sign-in returns, by password or by phone code. */
+  const startSession = async (u: Record<string, any>) => {
     const token = await createSession(db, u.id);
     await db.query('UPDATE users SET last_login = now() WHERE id=$1', [u.id]);
     await audit(db, { id: u.id, name: u.name }, 'login', 'user', u.id);
     return { token, user: publicUser(u), rights: ROLE_RIGHTS[u.role as Role], assigned: await assignedVillageIds(db, u.id) };
+  };
+  const statusBlock = (u: Record<string, any>) =>
+    u.status === 'pending' ? { code: 403, body: { error: 'Your registration is waiting for an admin to approve it.', status: 'pending' } }
+      : u.status !== 'active' ? { code: 403, body: { error: 'This account has been disabled. Please contact your admin.', status: u.status } }
+        : null;
+  /** A user by email or phone number, whichever was typed. */
+  const findUser = async (identifier: string) => {
+    const id = identifier.trim();
+    if (id.includes('@')) return (await db.query('SELECT * FROM users WHERE lower(email) = lower($1) AND deleted_at IS NULL', [id])).rows[0];
+    const phone = normalizePhone(id);
+    return phone ? (await db.query('SELECT * FROM users WHERE phone = $1 AND deleted_at IS NULL', [phone])).rows[0] : undefined;
+  };
+  const phoneTaken = async (phone: string) => (await db.query('SELECT 1 FROM users WHERE phone=$1 AND deleted_at IS NULL', [phone])).rows.length > 0;
+
+  app.post('/api/auth/login', limit(10, 15), async (req, reply) => {
+    const b = (req.body ?? {}) as { email?: string; password?: string };
+    const identifier = String(b.email ?? '').trim();
+    const u = await findUser(identifier);
+    if (!u || !verifyPassword(String(b.password ?? ''), u.password_hash)) {
+      await audit(db, null, 'login_failed', 'user', identifier);
+      return reply.code(401).send({ error: 'That email (or phone) and password do not match.' });
+    }
+    const blocked = statusBlock(u);
+    if (blocked) return reply.code(blocked.code).send(blocked.body);
+    return startSession(u);
   });
 
-  app.post('/api/auth/register', async (req, reply) => {
-    const b = (req.body ?? {}) as { name?: string; email?: string; phone?: string; password?: string; kind?: string };
+  app.post('/api/auth/register', limit(5, 60), async (req, reply) => {
+    const b = (req.body ?? {}) as { name?: string; email?: string; phone?: string; password?: string; kind?: string; acceptPrivacy?: boolean };
     const name = String(b.name ?? '').trim(), email = String(b.email ?? '').trim().toLowerCase(), password = String(b.password ?? '');
     // household members can sign in at once; staff wait for an admin
     const household = b.kind !== 'staff';
     if (!name || !email || !password) return reply.code(400).send({ error: 'Name, email and password are required.' });
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return reply.code(400).send({ error: 'Please enter a valid email address.' });
     if (!passwordOk(password)) return reply.code(400).send({ error: `Password: ${PASSWORD_RULE}` });
+    if (b.acceptPrivacy !== true) return reply.code(400).send({ error: 'Please read and accept the privacy policy.' });
+    const phone = b.phone?.trim() ? normalizePhone(b.phone) : null;
+    if (b.phone?.trim() && !phone) return reply.code(400).send({ error: 'Please enter a valid phone number, e.g. 98765 43210.' });
     const { rows } = await db.query('SELECT 1 FROM users WHERE lower(email) = $1', [email]);
     if (rows.length) return reply.code(409).send({ error: 'That email is already registered.' });
+    if (phone && await phoneTaken(phone)) return reply.code(409).send({ error: 'That phone number is already registered.' });
     const role = household ? 'respondent' : 'collector';
-    await db.query(`INSERT INTO users (name, email, phone, role, status, password_hash) VALUES ($1,$2,$3,$4,$5,$6)`,
-      [name, email, b.phone?.trim() || null, role, household ? 'active' : 'pending', hashPassword(password)]);
+    await db.query(`INSERT INTO users (name, email, phone, role, status, password_hash, privacy_accepted_at) VALUES ($1,$2,$3,$4,$5,$6, now())`,
+      [name, email, phone, role, household ? 'active' : 'pending', hashPassword(password)]);
     await audit(db, null, 'register', 'user', email, { role });
     return household
       ? { ok: true, active: true, message: 'Your account is ready. Sign in to fill in your household’s details.' }
       : { ok: true, active: false, message: 'Registration received. An admin will review and approve your account.' };
+  });
+
+  /* ---- phone: one-time codes by text message ---- */
+  /**
+   * purpose "signin": a code to the number typed (works for new and existing accounts).
+   * purpose "reset": the number may be typed, or an email given — the code goes to the phone
+   * number on that account. The answer is the same whether or not an account matches.
+   */
+  app.post('/api/auth/otp/send', limit(5, 15), async (req, reply) => {
+    if (!phoneSignInAvailable()) return reply.code(503).send({ error: 'Signing in with a phone number is not available yet.' });
+    const b = (req.body ?? {}) as { phone?: string; identifier?: string; purpose?: string };
+    if (b.purpose === 'reset') {
+      const u = await findUser(String(b.identifier ?? b.phone ?? ''));
+      const generic = { ok: true, message: 'If an account matches, a code has been sent to the phone number on it.' };
+      if (!u?.phone) return generic;
+      const code = await createCode(db, u.phone, 'reset');
+      await sendSms(u.phone, `Your DYESKIT code to reset your password is ${code}. It expires in ${CODE_MINUTES} minutes.`);
+      return { ...generic, sentTo: maskPhone(u.phone), ...(revealCodes() ? { devCode: code } : {}) };
+    }
+    const phone = normalizePhone(b.phone);
+    if (!phone) return reply.code(400).send({ error: 'Please enter a valid phone number, e.g. 98765 43210.' });
+    const code = await createCode(db, phone, 'signin');
+    await sendSms(phone, `Your DYESKIT sign-in code is ${code}. It expires in ${CODE_MINUTES} minutes. Do not share it.`);
+    return { ok: true, sentTo: maskPhone(phone), ...(revealCodes() ? { devCode: code } : {}) };
+  });
+
+  /** A correct code signs in an existing account, or hands back a ticket to create one. */
+  app.post('/api/auth/otp/verify', limit(10, 15), async (req, reply) => {
+    const b = (req.body ?? {}) as { phone?: string; code?: string };
+    const phone = normalizePhone(b.phone);
+    if (!phone) return reply.code(400).send({ error: 'Please enter a valid phone number.' });
+    await checkCode(db, phone, 'signin', String(b.code ?? ''));
+    const u = (await db.query('SELECT * FROM users WHERE phone=$1 AND deleted_at IS NULL', [phone])).rows[0];
+    if (!u) return { needsAccount: true, ticket: await createTicket(db, phone), phone: maskPhone(phone) };
+    const blocked = statusBlock(u);
+    if (blocked) return reply.code(blocked.code).send(blocked.body);
+    return startSession(u);
+  });
+
+  /** Finish registering a verified phone number: name, kind, privacy consent. No password needed. */
+  app.post('/api/auth/register-phone', limit(5, 60), async (req, reply) => {
+    const b = (req.body ?? {}) as { ticket?: string; name?: string; kind?: string; acceptPrivacy?: boolean };
+    const name = String(b.name ?? '').trim();
+    if (!name) return reply.code(400).send({ error: 'Please enter your name.' });
+    if (b.acceptPrivacy !== true) return reply.code(400).send({ error: 'Please read and accept the privacy policy.' });
+    const phone = await redeemTicket(db, String(b.ticket ?? ''));
+    if (await phoneTaken(phone)) return reply.code(409).send({ error: 'That phone number is already registered. Please sign in.' });
+    const household = b.kind !== 'staff';
+    const role = household ? 'respondent' : 'collector';
+    const r = await db.query(`INSERT INTO users (name, phone, role, status, password_hash, privacy_accepted_at) VALUES ($1,$2,$3,$4,$5, now()) RETURNING *`,
+      [name, phone, role, household ? 'active' : 'pending', NO_PASSWORD]);
+    await audit(db, null, 'register', 'user', maskPhone(phone), { role, by: 'phone' });
+    if (!household) return { ok: true, active: false, message: 'Registration received. An admin will review and approve your account.' };
+    return { ok: true, active: true, ...(await startSession(r.rows[0])) };
+  });
+
+  /** Forgot password: the code sent to the account's phone, and a new password. */
+  app.post('/api/auth/password/reset', limit(10, 15), async (req, reply) => {
+    const b = (req.body ?? {}) as { identifier?: string; code?: string; password?: string };
+    const password = String(b.password ?? '');
+    if (!passwordOk(password)) return reply.code(400).send({ error: `Password: ${PASSWORD_RULE}` });
+    const u = await findUser(String(b.identifier ?? ''));
+    if (!u?.phone) return reply.code(400).send({ error: 'That code is not correct.' });
+    await checkCode(db, u.phone, 'reset', String(b.code ?? ''));
+    await db.query('UPDATE users SET password_hash=$1 WHERE id=$2', [hashPassword(password), u.id]);
+    await db.query('DELETE FROM sessions WHERE user_id=$1', [u.id]);
+    await audit(db, { id: u.id, name: u.name }, 'password_reset', 'user', u.id);
+    return { ok: true, message: 'Your password has been changed. Please sign in.' };
   });
 
   app.post('/api/auth/logout', async req => {
@@ -98,7 +199,21 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
 
   app.get('/api/me', async req => {
     const u = signedIn(req);
-    return { user: u, rights: rightsOf(u), assigned: await assignedVillageIds(db, u.id) };
+    const { rows } = await db.query('SELECT password_hash FROM users WHERE id=$1', [u.id]);
+    return { user: u, rights: rightsOf(u), assigned: await assignedVillageIds(db, u.id), hasPassword: rows[0].password_hash !== NO_PASSWORD };
+  });
+
+  /** Change (or, for phone-only accounts, set) your password. */
+  app.post('/api/me/password', limit(10, 15), async req => {
+    const u = signedIn(req);
+    const b = (req.body ?? {}) as { current?: string; password?: string };
+    const { rows } = await db.query('SELECT password_hash FROM users WHERE id=$1', [u.id]);
+    const hasPassword = rows[0].password_hash !== NO_PASSWORD;
+    if (hasPassword && !verifyPassword(String(b.current ?? ''), rows[0].password_hash)) throw fail(401, 'Your current password is not correct.');
+    if (!passwordOk(String(b.password ?? ''))) throw fail(400, `Password: ${PASSWORD_RULE}`);
+    await db.query('UPDATE users SET password_hash=$1 WHERE id=$2', [hashPassword(String(b.password)), u.id]);
+    await audit(db, u, 'password_changed', 'user', u.id);
+    return { ok: true };
   });
 
   /** Account deletion (required by Apple and Google): personal details are erased; surveys stay, unlinked. */
@@ -106,7 +221,10 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
     const u = signedIn(req);
     const b = (req.body ?? {}) as { password?: string };
     const { rows } = await db.query('SELECT password_hash FROM users WHERE id=$1', [u.id]);
-    if (!verifyPassword(String(b.password ?? ''), rows[0].password_hash)) return reply.code(401).send({ error: 'Password is not correct.' });
+    // accounts made with a phone number and no password confirm by being signed in
+    if (rows[0].password_hash !== NO_PASSWORD && !verifyPassword(String(b.password ?? ''), rows[0].password_hash)) {
+      return reply.code(401).send({ error: 'Password is not correct.' });
+    }
     await db.tx(async q => {
       await eraseUser(q, u.id);
       await audit(q, { id: u.id, name: 'Deleted user' }, 'delete_account', 'user', u.id);
@@ -136,11 +254,11 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
     const u = signedIn(req);
     if (rightsOf(u).read === 'own') {
       // household members: the Ladakh-wide picture only, whatever filters are asked for
-      const rows = applyFilters(await loadRows(db, null), parseFilters({}));
+      const rows = applyFilters(await loadRows(db, null), parseFilters({})).filter(counts);
       return publicDashboard(computeDashboard(rows, await villagesInfo(db, null)));
     }
     const scope = await scopeOf(db, u);
-    const all = await loadRows(db, scope);
+    const all = (await loadRows(db, scope)).filter(counts);
     const f = parseFilters(req.query as Q);
     const rows = applyFilters(all, f);
     let villages = await villagesInfo(db, scope);
@@ -154,7 +272,7 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
     const u = signedIn(req);
     need(rightsOf(u).read !== 'own', 'Insights are for project staff.');
     const scope = await scopeOf(db, u);
-    const rows = applyFilters(await loadRows(db, scope), parseFilters(req.query as Q));
+    const rows = applyFilters(await loadRows(db, scope), parseFilters(req.query as Q)).filter(counts);
     return computeInsights(rows, await villagesInfo(db, scope));
   });
 
@@ -165,7 +283,10 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
     const q = req.query as Q;
     // the list shows every status, rejected included; dashboards leave rejected surveys out
     const rows = applyFilters(await loadRows(db, await scopeOf(db, u)), parseFilters(q), { allStatuses: true })
-      .filter(r => R.read !== 'own' || r.collectorId === u.id);
+      .filter(r => R.read !== 'own' || r.collectorId === u.id)
+      .filter(r => !q.source || r.source === q.source)
+      .map(r => ({ ...r, issues: surveyIssues(r) }))
+      .filter(r => !q.flagged || r.issues.length > 0);
     const limit = Math.min(500, Number(q.limit) || 100), offset = Number(q.offset) || 0;
     return {
       total: rows.length,
@@ -173,6 +294,8 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
         id: r.id, householdCode: R.pii || r.collectorId === u.id ? r.householdCode : `HH-${r.id.slice(0, 6)}`, village: r.village, villageId: r.villageId,
         district: r.district, status: r.status, submittedAt: r.submittedAt, durationMin: r.durationMin,
         score: r.score?.score ?? null, band: r.score?.band ?? null, collectorId: r.collectorId, source: r.source,
+        collectorName: R.read === 'all' || R.read === 'assigned' ? r.collectorName : null,
+        issues: R.review || R.editAny ? r.issues : [],
       })),
     };
   });
@@ -214,6 +337,7 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
         questionnaireVersion: s.questionnaire_version, source: s.source,
       },
       answers, score: scoreHousehold(answers), history,
+      issues: R.review || R.editAny ? surveyIssues({ answers, score: scoreHousehold(answers), durationMin: s.duration_min }) : [],
       canEdit: R.editAny || householdOwns(u, s) || (R.read !== 'own' && s.collector_id === u.id && s.status !== 'approved'),
       canReview: R.review, canDelete: R.delete || householdOwns(u, s),
     };
@@ -312,6 +436,54 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
        LEFT JOIN users d ON d.id = su.deleted_by WHERE su.deleted_at IS NOT NULL ORDER BY su.deleted_at DESC LIMIT 200`)).rows };
   });
 
+  /* ----------------------------------------------------------- all data */
+  /**
+   * Counts for reviewing data district by district and village by village: surveys, waiting
+   * review, rejected, self-reported, and how many need a look (see packages/core/src/quality.ts).
+   */
+  app.get('/api/data/summary', async req => {
+    const u = signedIn(req);
+    const R = rightsOf(u);
+    need(R.review || R.editAny, 'Only admins and supervisors can review all data.');
+    const rows = (await loadRows(db, await scopeOf(db, u))).map(r => ({ ...r, flagged: surveyIssues(r).length > 0 }));
+    const villages = await db.query<{ id: number; name: string; code: string; district: string; households: number }>(
+      'SELECT id, name, code, district, households FROM villages WHERE archived_at IS NULL');
+    const count = (rs: typeof rows) => ({
+      surveys: rs.length,
+      waiting: rs.filter(r => r.status === 'submitted').length,
+      rejected: rs.filter(r => r.status === 'rejected').length,
+      self: rs.filter(r => r.source === 'self').length,
+      flagged: rs.filter(r => r.flagged).length,
+      lastAt: rs.reduce<string | null>((m, r) => (r.submittedAt && (!m || r.submittedAt > m) ? r.submittedAt : m), null),
+    });
+    return {
+      districts: DISTRICTS.map(d => {
+        const rs = rows.filter(r => r.district === d.id);
+        return { id: d.id, name: d.name, letter: d.letter, villages: villages.rows.filter(v => v.district === d.id).length,
+          villagesWithData: new Set(rs.map(r => r.villageId)).size, ...count(rs) };
+      }),
+      villages: villages.rows.map(v => ({ ...v, ...count(rows.filter(r => r.villageId === v.id)) })).filter(v => v.surveys > 0),
+    };
+  });
+
+  /** Approve (or send back) several surveys at once — e.g. every clean survey waiting in a village. */
+  app.post('/api/submissions/review-bulk', async req => {
+    const u = signedIn(req);
+    need(rightsOf(u).review, 'Only supervisors and admins can review surveys.');
+    const b = (req.body ?? {}) as { ids?: string[]; status?: string };
+    if (b.status !== 'approved') throw fail(400, 'Only bulk approval is supported; send surveys back one by one with a note.');
+    const scope = await scopeOf(db, u);
+    const ids = (Array.isArray(b.ids) ? b.ids : []).filter(id => /^[0-9a-f-]{36}$/i.test(String(id))).slice(0, 1000);
+    const { rows } = await db.query<{ id: string; village_id: number }>(
+      `SELECT id, village_id FROM submissions WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL AND status = 'submitted'`, [ids]);
+    const allowed = rows.filter(r => !scope || scope.includes(r.village_id)).map(r => r.id);
+    if (allowed.length) {
+      await db.query(`UPDATE submissions SET status='approved', reviewed_by=$1, reviewed_at=now(), updated_at=now() WHERE id = ANY($2::uuid[])`, [u.id, allowed]);
+      await audit(db, u, 'review_approved_bulk', 'submission', null, { count: allowed.length });
+    }
+    return { ok: true, approved: allowed.length };
+  });
+
   /* ------------------------------------------------------------- users */
   app.get('/api/users', async req => {
     const u = signedIn(req);
@@ -327,13 +499,18 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
     const u = signedIn(req);
     need(rightsOf(u).manageUsers, 'Only admins can add users.');
     const b = (req.body ?? {}) as { name?: string; email?: string; phone?: string; role?: Role; password?: string };
-    if (!b.name || !b.email || !b.password || !b.role) throw fail(400, 'Name, email, role and a temporary password are required.');
+    if (!b.name || (!b.email && !b.phone) || !b.password || !b.role) throw fail(400, 'Name, email or phone, role and a temporary password are required.');
+    const phone = b.phone ? normalizePhone(b.phone) : null;
+    if (b.phone && !phone) throw fail(400, 'Please enter a valid phone number.');
+    if (phone && await phoneTaken(phone)) throw fail(409, 'That phone number is already registered.');
     if (!ROLE_RIGHTS[b.role]) throw fail(400, 'Unknown role.');
     if (!passwordOk(b.password)) throw fail(400, `Password: ${PASSWORD_RULE}`);
-    const exists = await db.query('SELECT 1 FROM users WHERE lower(email) = lower($1)', [b.email]);
-    if (exists.rows.length) throw fail(409, 'That email is already registered.');
+    if (b.email) {
+      const exists = await db.query('SELECT 1 FROM users WHERE lower(email) = lower($1)', [b.email]);
+      if (exists.rows.length) throw fail(409, 'That email is already registered.');
+    }
     const r = await db.query(`INSERT INTO users (name, email, phone, role, status, password_hash) VALUES ($1,$2,$3,$4,'active',$5) RETURNING id`,
-      [b.name.trim(), b.email.trim().toLowerCase(), b.phone || null, b.role, hashPassword(b.password)]);
+      [b.name.trim(), b.email ? b.email.trim().toLowerCase() : null, phone, b.role, hashPassword(b.password)]);
     await audit(db, u, 'create_user', 'user', r.rows[0].id, { role: b.role });
     return { ok: true, id: r.rows[0].id };
   });
@@ -472,6 +649,22 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}) {
     const n = await rescoreOutdated(db, true);
     await audit(db, u, 'rescore_all', 'scores', null, { n, version: SCORING_VERSION });
     return { ok: true, rescored: n, version: SCORING_VERSION };
+  });
+
+  /* ------------------------------------------------------ privacy page */
+  // Public and plain HTML, so the app stores (and anyone) can read it without signing in.
+  app.get('/privacy', async (_req, reply) => {
+    const esc = (t: string) => t.replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]!));
+    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy policy — ${esc(ORGANISATION.name)}</title>
+<style>body{font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:720px;margin:0 auto;padding:24px 16px 64px;color:#121A33;background:#F4F6FB}
+h1{font-size:28px;margin:0 0 4px}h2{font-size:19px;margin:28px 0 6px}p{margin:6px 0}.muted{color:#4A5470}
+@media (prefers-color-scheme:dark){body{background:#0B1022;color:#EEF2FF}.muted{color:#B4BDD6}}</style></head><body>
+<h1>Privacy policy</h1><p class="muted">${esc(ORGANISATION.name)} · last updated ${esc(PRIVACY_UPDATED)}</p>
+${PRIVACY_POLICY.map(sec => `<h2>${esc(sec.title)}</h2>${sec.body.map(p => `<p>${esc(p)}</p>`).join('')}`).join('\n')}
+</body></html>`;
+    reply.header('Content-Type', 'text/html; charset=utf-8');
+    return html;
   });
 
   /* ----------------------------------------------------- web dashboard */

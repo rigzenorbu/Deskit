@@ -16,6 +16,9 @@ export function verifyPassword(password: string, stored: string) {
   return test.length === want.length && crypto.timingSafeEqual(test, want);
 }
 
+/** Stored instead of a password for accounts made with a phone number and a code. */
+export const NO_PASSWORD = 'none:phone-only';
+
 export const PASSWORD_RULE = 'At least 8 characters, with a letter and a number.';
 export const passwordOk = (p: string) => p.length >= 8 && /[a-z]/i.test(p) && /\d/.test(p);
 

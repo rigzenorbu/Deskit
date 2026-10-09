@@ -1,25 +1,22 @@
 import React, { useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import Animated, { ZoomIn } from 'react-native-reanimated';
-import { RADIUS, SPACE, useTheme } from '@/theme';
+import { SPACE, useTheme } from '@/theme';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { Button, Card, IconButton, Input, Row, Text, tap, type IconName } from '@/components/ui';
+import { Button, Card, IconButton, Input, Row, Text } from '@/components/ui';
+import { KindChoice, PrivacyConsent, type Kind } from '@/components/accounts';
 import { Hero } from '@/components/scenery';
 
-type Kind = 'household' | 'staff';
-const KINDS: { id: Kind; icon: IconName; title: string; text: string }[] = [
-  { id: 'household', icon: 'home', title: 'My household', text: 'I want to fill in my own household’s details. You can start right away.' },
-  { id: 'staff', icon: 'briefcase', title: 'Project staff', text: 'I collect surveys for the project. An admin approves staff accounts first.' },
-];
 
 export default function Register() {
   const { c } = useTheme();
   const { signIn } = useAuth();
   const [kind, setKind] = useState<Kind>('household');
   const [f, setF] = useState({ name: '', email: '', phone: '', password: '', confirm: '' });
+  const [accepted, setAccepted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -29,9 +26,10 @@ export default function Register() {
     setError(null);
     if (!f.name.trim() || !f.email.trim() || !f.password) return setError('Name, email and password are required.');
     if (f.password !== f.confirm) return setError('The two passwords do not match.');
+    if (!accepted) return setError('Please read and accept the privacy policy.');
     setBusy(true);
     try {
-      const r = await api<{ active: boolean }>('/api/auth/register', { method: 'POST', body: { name: f.name, email: f.email, phone: f.phone, password: f.password, kind } });
+      const r = await api<{ active: boolean }>('/api/auth/register', { method: 'POST', body: { name: f.name, email: f.email, phone: f.phone, password: f.password, kind, acceptPrivacy: true } });
       // household members go straight in; staff wait for approval
       if (r.active) await signIn(f.email.trim(), f.password);
       else setDone(true);
@@ -63,29 +61,13 @@ export default function Register() {
               </Card>
             ) : (
               <Card style={{ padding: SPACE.xl, gap: 14 }}>
-                <Text v="label" muted>I am registering for</Text>
-                {KINDS.map(k => {
-                  const on = kind === k.id;
-                  return (
-                    <Pressable key={k.id} onPress={() => { tap(); setKind(k.id); }}
-                      style={{ flexDirection: 'row', gap: 12, alignItems: 'center', padding: 14, borderRadius: RADIUS.md, borderWidth: 2,
-                        borderColor: on ? c.brand : c.line, backgroundColor: on ? c.brandSoft : c.surface }}>
-                      <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: on ? c.brand : c.surface2, alignItems: 'center', justifyContent: 'center' }}>
-                        <Feather name={k.icon} size={19} color={on ? '#fff' : c.ink2} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text v="h3">{k.title}</Text>
-                        <Text v="small" muted>{k.text}</Text>
-                      </View>
-                      <Feather name={on ? 'check-circle' : 'circle'} size={20} color={on ? c.brand : c.ink3} />
-                    </Pressable>
-                  );
-                })}
+                <KindChoice kind={kind} onChange={setKind} />
                 <Input label="Full name" icon="user" value={f.name} onChangeText={upd('name')} placeholder="e.g. Stanzin Dolma" autoComplete="name" />
                 <Input label="Email" icon="mail" value={f.email} onChangeText={upd('email')} autoCapitalize="none" keyboardType="email-address" autoComplete="email" placeholder="you@example.org" />
                 <Input label="Phone (optional)" icon="phone" value={f.phone} onChangeText={upd('phone')} keyboardType="phone-pad" placeholder="+91…" />
                 <Input label="Password" icon="lock" value={f.password} onChangeText={upd('password')} secureTextEntry placeholder="At least 8 characters, a letter and a number" />
                 <Input label="Confirm password" icon="lock" value={f.confirm} onChangeText={upd('confirm')} secureTextEntry placeholder="Type it again" onSubmitEditing={submit} />
+                <PrivacyConsent accepted={accepted} onChange={setAccepted} />
                 {error ? <Text v="small" color={c.danger}>{error}</Text> : null}
                 <Button title={kind === 'household' ? 'Create account and start' : 'Register'} icon="user-plus" loading={busy} onPress={submit} style={{ marginTop: 6 }} />
               </Card>

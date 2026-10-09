@@ -35,6 +35,8 @@ function Gate() {
         <Stack.Protected guard={status === 'signedOut'}>
           <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
         </Stack.Protected>
+        {/* readable by everyone, signed in or not */}
+        <Stack.Screen name="privacy" />
       </Stack>
       <ToastHost />
     </>

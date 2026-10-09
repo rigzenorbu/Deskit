@@ -5,7 +5,7 @@ import { useAuth } from '@/lib/auth';
 import { loadOutbox, syncNow } from '@/lib/outbox';
 import { useTheme } from '@/theme';
 
-const STAFF_ONLY = new Set(['villages', 'insights', 'explore', 'submissions', 'village', 'export', 'admin']);
+const STAFF_ONLY = new Set(['villages', 'insights', 'explore', 'submissions', 'village', 'export', 'admin', 'data']);
 
 /** Signed-in area. Loads this user's surveys on the phone and keeps trying to upload waiting ones. */
 export default function AppLayout() {

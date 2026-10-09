@@ -16,6 +16,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { normalizePhone } from '@dyeskit/core';
 
 export interface Queryable {
   query<T = Record<string, any>>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
@@ -96,7 +97,7 @@ export async function openDb(url = process.env.DATABASE_URL, dataDir = process.e
  * Migrations run in order, once each; their numbers are recorded in schema_migrations.
  * Add new ones at the end — never edit one that has already shipped.
  */
-const MIGRATIONS: string[] = [
+const MIGRATIONS: (string | ((q: Queryable) => Promise<void>))[] = [
   /* 1 — initial schema */ `
   CREATE TABLE users (
     id SERIAL PRIMARY KEY,
@@ -231,6 +232,40 @@ const MIGRATIONS: string[] = [
   ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin','supervisor','collector','analyst','viewer','respondent'));
   ALTER TABLE submissions ADD COLUMN source TEXT NOT NULL DEFAULT 'researcher' CHECK (source IN ('researcher','self'));
   `,
+  /* 3 — sign in with a phone number and a one-time code; privacy consent */ `
+  ALTER TABLE users ALTER COLUMN email DROP NOT NULL;
+  ALTER TABLE users ADD COLUMN privacy_accepted_at TIMESTAMPTZ;
+  CREATE TABLE otp_codes (
+    id SERIAL PRIMARY KEY,
+    phone TEXT NOT NULL,
+    purpose TEXT NOT NULL,
+    code_hash TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ
+  );
+  CREATE INDEX otp_codes_phone ON otp_codes (phone, purpose, created_at DESC);
+  `,
+  /* 4 — one account per phone number. Existing numbers are first written in one form (+91…);
+     where two accounts share a number, the older account keeps it and the other loses it
+     (recorded in the audit log). Then the rule is enforced. */
+  async q => {
+    const { rows } = await q.query<{ id: number; name: string; phone: string }>(
+      'SELECT id, name, phone FROM users WHERE phone IS NOT NULL AND deleted_at IS NULL ORDER BY created_at, id');
+    const seen = new Set<string>();
+    for (const u of rows) {
+      const phone = normalizePhone(u.phone) ?? u.phone.trim();
+      if (seen.has(phone)) {
+        await q.query('UPDATE users SET phone = NULL WHERE id = $1', [u.id]);
+        await audit(q, null, 'phone_removed_duplicate', 'user', u.id, { phone, kept_by_older_account: true });
+      } else {
+        seen.add(phone);
+        if (phone !== u.phone) await q.query('UPDATE users SET phone = $1 WHERE id = $2', [phone, u.id]);
+      }
+    }
+    await q.query('CREATE UNIQUE INDEX users_phone ON users (phone) WHERE phone IS NOT NULL AND deleted_at IS NULL');
+  },
 ];
 
 export async function migrate(db: Db) {
@@ -238,8 +273,10 @@ export async function migrate(db: Db) {
   const done = new Set((await db.query<{ n: number }>('SELECT n FROM schema_migrations')).rows.map(r => r.n));
   for (let i = 0; i < MIGRATIONS.length; i++) {
     if (done.has(i + 1)) continue;
+    const m = MIGRATIONS[i];
     await db.tx(async q => {
-      for (const stmt of MIGRATIONS[i].split(/;\s*\n/).map(s => s.trim()).filter(Boolean)) await q.query(stmt);
+      if (typeof m === 'function') await m(q);
+      else for (const stmt of m.split(/;\s*\n/).map(s => s.trim()).filter(Boolean)) await q.query(stmt);
       await q.query('INSERT INTO schema_migrations (n) VALUES ($1)', [i + 1]);
     });
   }

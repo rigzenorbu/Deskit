@@ -195,7 +195,9 @@ export function parseFilters(q: Record<string, string | undefined>): Filters {
   };
 }
 
-export interface LoadedRow extends SurveyRow { householdCode: string; collectorId: number | null; startedAt: string | null; source: string }
+export interface LoadedRow extends SurveyRow {
+  householdCode: string; collectorId: number | null; collectorName: string | null; startedAt: string | null; source: string;
+}
 
 const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : d ? String(d) : null);
 
@@ -203,16 +205,17 @@ const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : d ? String(d)
 export async function loadRows(db: Queryable, scope: number[] | null, includeDeleted = false): Promise<LoadedRow[]> {
   const { rows } = await db.query(
     `SELECT su.id, su.village_id, v.name AS village, v.district, v.households, su.submitted_at, su.started_at, su.duration_min,
-            su.status, su.collector_id, su.source, h.code AS household_code, sc.detail AS score,
+            su.status, su.collector_id, c.name AS collector_name, su.source, h.code AS household_code, sc.detail AS score,
             COALESCE((SELECT jsonb_object_agg(a.item_id, a.value) FROM answers a WHERE a.submission_id = su.id), '{}'::jsonb) AS answers
      FROM submissions su JOIN villages v ON v.id = su.village_id JOIN households h ON h.id = su.household_id
      LEFT JOIN scores sc ON sc.submission_id = su.id
+     LEFT JOIN users c ON c.id = su.collector_id
      WHERE ${includeDeleted ? 'true' : 'su.deleted_at IS NULL'} ${scope ? 'AND su.village_id = ANY($1)' : ''}
      ORDER BY su.submitted_at DESC NULLS LAST`, scope ? [scope] : []);
   return rows.map(r => ({
     id: r.id, villageId: r.village_id, village: r.village, district: r.district, households: r.households,
     submittedAt: iso(r.submitted_at), startedAt: iso(r.started_at), durationMin: r.duration_min, status: r.status,
-    collectorId: r.collector_id, householdCode: r.household_code, source: r.source,
+    collectorId: r.collector_id, collectorName: r.collector_name, householdCode: r.household_code, source: r.source,
     answers: r.answers as Answers, score: (r.score as HouseholdScore) ?? null,
   }));
 }
@@ -234,3 +237,10 @@ export function applyFilters(rows: LoadedRow[], f: Filters, opts: { allStatuses?
 }
 
 export const newId = () => crypto.randomUUID();
+
+/**
+ * Which surveys count in dashboards and insights: everything submitted by staff, but surveys a
+ * household filled in itself only once a supervisor has approved them — anyone can register, so
+ * self-reported answers are checked before they move any number.
+ */
+export const counts = (r: { source: string; status: string }) => r.source !== 'self' || r.status === 'approved';

@@ -162,6 +162,10 @@ export default function VillageProfile() {
         ))}
         {notes.data && !notes.data.rows.length ? <Text v="small" muted>No notes yet.</Text> : null}
 
+        {(meta.rights.review || meta.rights.editAny) && village ? (
+          <Button title="Review all surveys in this village" icon="list" kind="secondary" style={{ marginTop: SPACE.xl }}
+            onPress={() => router.push(`/data/village/${v.id}`)} />
+        ) : null}
         {meta.rights.addData && inScope && village ? (
           <Button title={`Survey a household in ${v.name}`} icon="plus" style={{ marginTop: SPACE.xl, borderRadius: RADIUS.pill }} onPress={() => router.push('/new-survey')} />
         ) : null}

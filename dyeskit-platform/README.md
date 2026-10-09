@@ -35,6 +35,19 @@ dyeskit-platform/
   religion, band): district comparison, trends, distribution of scores, village heatmap, group
   comparisons (gender, age, religion, occupation, education, family, housing, household size),
   weakest questions, development priorities, technology readiness and data quality.
+- **All data for admins and supervisors** (More → All data): district → village → household, with
+  who filled in each survey (staff member or the household itself), counts waiting review, and
+  automatic **"needs a look"** checks for likely wrong or careless data — interviews under 10 minutes,
+  missing answers, impossible height/weight or age, very large households, and the same answer to
+  every agreement question. Every survey can be corrected, approved, sent back or deleted; clean
+  surveys in a village can be approved in one tap. The checks only flag; a person decides
+  (rules in `packages/core/src/quality.ts`).
+- **Sign in with a phone number.** A 6-digit code by text message — no password or email needed;
+  a new number creates the account. Email and password still work, and **Forgot password** sends a
+  code to the phone on the account. Limits stop password guessing and mass registration.
+  Self-reported surveys count in dashboards only after a supervisor approves them.
+- **Privacy policy** in the app and public at `/privacy` (needed for the app stores). **Before
+  publishing, fill in the organisation details in `packages/core/src/privacy.ts`.**
 - **Insights** in plain words: priority actions, villages that can learn from each other,
   bright spots — every one a count you can check.
 - **Roles**: Admin, Supervisor, Field Researcher, Analyst, Viewer — the same access rules as the

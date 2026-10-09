@@ -15,10 +15,11 @@ import { TopBar } from '@/components/TopBar';
 
 interface Detail {
   submission: { id: string; village: string; villageId: number; district: string; status: string; householdCode: string; headName: string | null; phone: string | null;
-    collector: string | null; reviewer: string | null; reviewNote: string | null; submittedAt: string; durationMin: number | null; deletedAt: string | null };
+    collector: string | null; reviewer: string | null; reviewNote: string | null; submittedAt: string; durationMin: number | null; deletedAt: string | null; source?: string };
   answers: Answers; score: HouseholdScore;
   history: { item_id: string; old_value: unknown; new_value: unknown; changed_at: string; reason: string | null; changed_by: string | null }[];
   canEdit: boolean; canReview: boolean; canDelete: boolean;
+  issues?: { id: string; label: string }[];
 }
 
 export default function SubmissionDetail() {
@@ -71,13 +72,25 @@ export default function SubmissionDetail() {
     <View style={{ flex: 1, backgroundColor: c.bg }}>
       <TopBar title={s.householdCode} sub={`${s.village} · ${fmtDateTime(s.submittedAt)}`} right={<StatusBadge status={s.status} />} />
       <Screen>
+        {q.data.issues?.length ? (
+          <Card style={{ marginBottom: SPACE.md, borderLeftWidth: 4, borderLeftColor: c.danger }}>
+            <Text v="h3">Needs a look</Text>
+            {q.data.issues.map(i => (
+              <Row key={i.id} gap={6} style={{ marginTop: 6 }}><Feather name="alert-triangle" size={14} color={c.danger} /><Text v="small" style={{ flex: 1 }}>{i.label}</Text></Row>
+            ))}
+            <Text v="caption" faint style={{ marginTop: 8 }}>Check the answers below, then correct, approve, send back or delete.</Text>
+          </Card>
+        ) : null}
         <Card>
           <Row wrap gap={16} style={{ alignItems: 'center' }}>
             <Ring value={score.score} size={130} label={editing ? 'new score' : 'household score'} />
             <View style={{ flex: 1, minWidth: 180, gap: 6 }}>
               <BandPill band={score.band} />
               <Text v="h3">{bandLabel(score.band)}</Text>
-              <Text v="small" muted>Collected by {s.collector ?? '—'}{s.durationMin ? ` in ${s.durationMin} minutes` : ''}</Text>
+              <Text v="small" muted>
+                {s.source === 'self' ? 'Filled in by the household itself' : `Collected by ${s.collector ?? 'a deleted user'}`}
+                {s.durationMin ? ` in ${s.durationMin} minutes` : ''}
+              </Text>
               {s.headName ? <Text v="small" muted>Head of household: {s.headName}{s.phone ? ` · ${s.phone}` : ''}</Text> : null}
               {s.reviewNote ? (
                 <Row style={{ backgroundColor: c.warning + '18', borderRadius: RADIUS.sm, padding: 8, marginTop: 4 }}>

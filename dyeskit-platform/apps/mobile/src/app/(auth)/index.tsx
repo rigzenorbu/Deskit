@@ -12,6 +12,7 @@ import { api } from '@/lib/api';
 import { serverUrl, setServerUrl } from '@/lib/config';
 import { Button, Card, Input, Row, Sheet, Text } from '@/components/ui';
 import { Logo, Mountains, PrayerFlags } from '@/components/scenery';
+import { PhoneSignIn } from '@/components/accounts';
 
 const DEMO = [
   { role: 'Admin', email: 'admin@dyeskit.org', password: 'Admin@123' },
@@ -32,10 +33,15 @@ export default function SignIn() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [demo, setDemo] = useState(false);
+  const [phoneOk, setPhoneOk] = useState(false);
+  const [tab, setTab] = useState<'phone' | 'email'>('phone');
   const [serverOpen, setServerOpen] = useState(false);
   const [server, setServer] = useState(serverUrl());
 
-  const checkServer = () => api<{ demo: boolean }>('/api/health').then(h => setDemo(!!h.demo)).catch(() => setDemo(false));
+  const checkServer = () => api<{ demo: boolean; phoneSignIn?: boolean }>('/api/health')
+    .then(h => { setDemo(!!h.demo); setPhoneOk(!!h.phoneSignIn); })
+    .catch(() => { setDemo(false); setPhoneOk(false); });
+  const mode = phoneOk ? tab : 'email';
   useEffect(() => { checkServer(); }, []);
 
   const submit = async () => {
@@ -75,15 +81,29 @@ export default function SignIn() {
           <Animated.View entering={FadeInUp.delay(250).duration(500)} style={{ marginTop: -64, paddingHorizontal: SPACE.lg, width: '100%', maxWidth: 480, alignSelf: 'center' }}>
             <Card style={{ padding: SPACE.xl }}>
               <Text v="title">Julley! 👋</Text>
-              <Text v="body" muted style={{ marginTop: 4, marginBottom: SPACE.lg }}>Sign in to continue.</Text>
-              <Input label="Email" icon="mail" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address"
-                autoComplete="email" placeholder="you@example.org" returnKeyType="next" />
+              <Text v="body" muted style={{ marginTop: 4, marginBottom: SPACE.lg }}>Sign in, or register as a new user.</Text>
+              {phoneOk ? (
+                <Row gap={6} style={{ backgroundColor: c.surface2, borderRadius: RADIUS.pill, padding: 4, marginBottom: SPACE.lg }}>
+                  {([['phone', 'Phone number', 'smartphone'], ['email', 'Email & password', 'mail']] as const).map(([id, label, icon]) => (
+                    <Pressable key={id} onPress={() => { setTab(id); setError(null); }}
+                      style={{ flex: 1, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', height: 40, borderRadius: RADIUS.pill,
+                        backgroundColor: mode === id ? c.surface : 'transparent' }}>
+                      <Feather name={icon} size={15} color={mode === id ? c.brand : c.ink3} />
+                      <Text v="small" color={mode === id ? c.brand : c.ink2} style={{ fontFamily: FONT.semibold }}>{label}</Text>
+                    </Pressable>
+                  ))}
+                </Row>
+              ) : null}
+              {mode === 'phone' ? <PhoneSignIn /> : (<>
+              <Input label="Email or phone" icon="mail" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address"
+                autoComplete="email" placeholder="you@example.org or 98765 43210" returnKeyType="next" />
               <View style={{ height: 14 }} />
               <Input label="Password" icon="lock" value={password} onChangeText={setPassword} secureTextEntry={!show}
                 autoComplete="password" placeholder="Your password" returnKeyType="go" onSubmitEditing={submit} />
-              <Pressable onPress={() => setShow(s => !s)} style={{ alignSelf: 'flex-end', marginTop: 8 }}>
-                <Text v="small" color={c.brand}>{show ? 'Hide password' : 'Show password'}</Text>
-              </Pressable>
+              <Row style={{ justifyContent: 'space-between', marginTop: 8 }}>
+                <Pressable onPress={() => router.push('/forgot')}><Text v="small" color={c.brand} style={{ fontFamily: FONT.semibold }}>Forgot password?</Text></Pressable>
+                <Pressable onPress={() => setShow(s => !s)}><Text v="small" color={c.brand}>{show ? 'Hide password' : 'Show password'}</Text></Pressable>
+              </Row>
               {error ? (
                 <Row style={{ backgroundColor: c.danger + '18', borderRadius: RADIUS.md, padding: 12, marginTop: 12 }}>
                   <Feather name="alert-circle" size={16} color={c.danger} />
@@ -95,9 +115,10 @@ export default function SignIn() {
                 <Text v="small" muted>New user?</Text>
                 <Pressable onPress={() => router.push('/register')}><Text v="small" color={c.brand} style={{ fontFamily: FONT.bold }}>Register</Text></Pressable>
               </Row>
+              </>)}
             </Card>
 
-            {demo ? (
+            {demo && mode === 'email' ? (
               <Card style={{ marginTop: SPACE.md }}>
                 <Text v="label" muted>Demo accounts — tap to fill</Text>
                 <Row wrap gap={8} style={{ marginTop: 10 }}>
@@ -111,6 +132,9 @@ export default function SignIn() {
               </Card>
             ) : null}
 
+            <Pressable onPress={() => router.push('/privacy')} style={{ alignSelf: 'center', paddingTop: 16 }}>
+              <Row gap={6}><Feather name="shield" size={13} color={c.ink3} /><Text v="caption" faint>Privacy policy</Text></Row>
+            </Pressable>
             <Pressable onPress={() => setServerOpen(true)} style={{ alignSelf: 'center', padding: 16, marginBottom: insets.bottom + 8 }}>
               <Row gap={6}><Feather name="server" size={13} color={c.ink3} /><Text v="caption" faint>Server: {serverUrl().replace(/^https?:\/\//, '')}</Text></Row>
             </Pressable>

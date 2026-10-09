@@ -11,7 +11,7 @@ import { Badge, Button, Card, Chip, Empty, ErrorBox, IconButton, Input, Loading,
 import { TopBar } from '@/components/TopBar';
 import { villageMatches } from '@/components/pickers';
 
-interface U { id: number; name: string; email: string; phone: string | null; role: Role; status: string; created_at: string; last_login: string | null; villages: { id: number; name: string; district: string }[] }
+interface U { id: number; name: string; email: string | null; phone: string | null; role: Role; status: string; created_at: string; last_login: string | null; villages: { id: number; name: string; district: string }[] }
 
 export default function Users() {
   const meta = useMeta();
@@ -34,7 +34,7 @@ export default function Users() {
     onError: (e: Error) => toast(e.message, 'error'),
   });
 
-  const rows = (q.data?.rows ?? []).filter(u => !search || `${u.name} ${u.email}`.toLowerCase().includes(search.toLowerCase()));
+  const rows = (q.data?.rows ?? []).filter(u => !search || `${u.name} ${u.email ?? ''} ${u.phone ?? ''}`.toLowerCase().includes(search.toLowerCase()));
   const pending = rows.filter(u => u.status === 'pending');
   const others = rows.filter(u => u.status !== 'pending');
 
@@ -50,7 +50,7 @@ export default function Users() {
             {pending.map(u => (
               <Card key={u.id} style={{ marginBottom: 10, borderLeftWidth: 4, borderLeftColor: c.warning }}>
                 <Text v="h3">{u.name}</Text>
-                <Text v="small" muted>{u.email}{u.phone ? ` · ${u.phone}` : ''} · registered {fmtDate(u.created_at)}</Text>
+                <Text v="small" muted>{[u.email, u.phone].filter(Boolean).join(' · ')} · registered {fmtDate(u.created_at)}</Text>
                 <Row gap={8} style={{ marginTop: 12 }} wrap>
                   <Button title="Approve" small icon="check" gradient={['#22B07D', '#14A3A8']} onPress={() => patch.mutate({ id: u.id, body: { status: 'active' } })} />
                   <Button title="Approve & assign villages" small kind="secondary" onPress={() => { patch.mutate({ id: u.id, body: { status: 'active' } }); setAssign(u); }} />
@@ -68,7 +68,7 @@ export default function Users() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text v="h3" numberOfLines={1}>{u.name}</Text>
-                    <Text v="caption" muted numberOfLines={1}>{u.email}</Text>
+                    <Text v="caption" muted numberOfLines={1}>{u.email ?? u.phone}</Text>
                   </View>
                   <Badge label={u.status === 'active' ? roleName(u.role) : 'Disabled'} color={u.status === 'active' ? c.brand : c.danger} />
                 </Row>
@@ -88,7 +88,7 @@ export default function Users() {
       <Sheet visible={!!edit} onClose={() => setEdit(null)} title={edit?.name ?? ''}>
         {edit ? (
           <>
-            <Text v="small" muted>{edit.email} · last sign-in {edit.last_login ? fmtDate(edit.last_login) : 'never'}</Text>
+            <Text v="small" muted>{edit.email ?? edit.phone} · last sign-in {edit.last_login ? fmtDate(edit.last_login) : 'never'}</Text>
             <Text v="label" muted style={{ marginTop: SPACE.lg, marginBottom: 8 }}>Role</Text>
             <View style={{ gap: 8 }}>
               {ROLES.map(r => (
@@ -127,7 +127,7 @@ export default function Users() {
 
       <Sheet visible={!!removing} onClose={() => setRemoving(null)} title={`Delete ${removing?.name ?? ''}?`}
         footer={<Button title="Yes, delete this user" kind="danger" loading={remove.isPending} onPress={() => removing && remove.mutate(removing.id)} />}>
-        <Text v="body">{removing?.email}</Text>
+        <Text v="body">{removing?.email ?? removing?.phone}</Text>
         <Text v="small" muted style={{ marginTop: 10, lineHeight: 20 }}>
           Their name, email and phone number are erased and they are signed out on every device. Surveys they collected or filled in
           stay in the project, no longer linked to them, so no score changes. This cannot be undone; the email can register again later.
@@ -201,8 +201,8 @@ function AddUser({ visible, onClose, onDone }: { visible: boolean; onClose: () =
     <Sheet visible={visible} onClose={onClose} title="Add a user" footer={<Button title="Create account" loading={busy} onPress={save} />}>
       <View style={{ gap: 12 }}>
         <Input label="Name" value={f.name} onChangeText={name => setF({ ...f, name })} />
-        <Input label="Email" value={f.email} onChangeText={email => setF({ ...f, email })} autoCapitalize="none" keyboardType="email-address" />
-        <Input label="Phone (optional)" value={f.phone} onChangeText={phone => setF({ ...f, phone })} keyboardType="phone-pad" />
+        <Input label="Email (or give a phone below)" value={f.email} onChangeText={email => setF({ ...f, email })} autoCapitalize="none" keyboardType="email-address" />
+        <Input label="Phone" value={f.phone} onChangeText={phone => setF({ ...f, phone })} keyboardType="phone-pad" />
         <Text v="label" muted>Role</Text>
         <Row wrap gap={8}>{ROLES.map(r => <Chip key={r.id} label={r.name} active={f.role === r.id} onPress={() => setF({ ...f, role: r.id })} />)}</Row>
         <Input label="Temporary password" value={f.password} onChangeText={password => setF({ ...f, password })} />

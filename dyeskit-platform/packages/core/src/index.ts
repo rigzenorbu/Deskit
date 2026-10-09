@@ -5,3 +5,6 @@ export * from './insights';
 export * from './analytics';
 export * from './roles';
 export * from './codes';
+export * from './quality';
+export * from './phone';
+export * from './privacy';

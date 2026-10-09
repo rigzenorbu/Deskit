@@ -15,6 +15,14 @@ admins and analysts can use it from a computer at the same address.
 | `SEED_DEMO` | `false` in production (no demo accounts or demo surveys) |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | the first admin account, created on first start when the database has no users |
 | `PORT` | set by most hosts automatically |
+| `SMS_PROVIDER` | `twilio` to send sign-in codes by text message. Unset: phone sign-in is off in production (in development the code is shown on screen instead) |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` (or `TWILIO_MESSAGING_SERVICE_SID`) | Twilio account details, when `SMS_PROVIDER=twilio` |
+| `OTP_SECRET` | any long random text; keeps sign-in codes valid across a restart |
+
+**Text messages in India** need the message template registered on TRAI's DLT platform. Your
+SMS provider walks you through it; the message the app sends is
+"Your DYESKIT sign-in code is 123456. It expires in 10 minutes. Do not share it."
+Another provider (MSG91, Fast2SMS…) can be added in `apps/server/src/sms.ts`.
 
 Build and start commands, from the `dyeskit-platform` folder:
 

@@ -173,3 +173,38 @@ test('dashboard analytics run on an empty and a small set', () => {
   assert.equal(d.groups.gender.length, 2);
   assert.equal(d.histogram.reduce((s, h) => s + h.count, 0), 3);
 });
+
+/* --------------------------------------------------------------- quality */
+import { surveyIssues } from './index';
+
+test('quality checks flag likely wrong or careless surveys, and nothing else', () => {
+  // a realistic household: varied answers to the agreement questions
+  const scaleIds = SECTIONS.flatMap(s => s.items).filter(i => i.type === 'scale').map(i => i.id);
+  const good: Record<string, unknown> = { ...household(60), ...Object.fromEntries(scaleIds.map((id, i) => [id, String(2 + (i % 4))])) };
+  const ok = surveyIssues({ answers: { ...good, A5: 40, A7: 5 }, score: scoreHousehold(good), durationMin: 25 });
+  assert.deepEqual(ok, []);
+
+  const ids = (a: Record<string, unknown>, minutes: number | null = 25) =>
+    surveyIssues({ answers: a, score: scoreHousehold(a), durationMin: minutes }).map(i => i.id);
+  assert.ok(ids(good, 6).includes('short'));
+  assert.ok(ids({ A5: 40 }).includes('incomplete'));
+  assert.ok(ids({ ...good, B1: { height_cm: 165, weight_kg: 580 } }).includes('bmi'));   // typed 580 for 58
+  assert.ok(ids({ ...good, A5: 7 }).includes('age'));
+  assert.ok(ids({ ...good, A7: 45 }).includes('household'));
+  const allFives = Object.fromEntries(SECTIONS.flatMap(s => s.items).filter(i => i.type === 'scale').map(i => [i.id, '5']));
+  assert.ok(ids({ ...good, ...allFives }).includes('same_answer'));
+});
+
+/* ----------------------------------------------------------------- phone */
+import { normalizePhone, maskPhone } from './index';
+
+test('phone numbers are stored in one form however they are typed', () => {
+  for (const typed of ['9876543210', '98765 43210', '+91 98765-43210', '919876543210', '09876543210', '+919876543210']) {
+    assert.equal(normalizePhone(typed), '+919876543210', typed);
+  }
+  assert.equal(normalizePhone('12345'), null);
+  assert.equal(normalizePhone('1234567890'), null);        // Indian mobiles start with 6–9
+  assert.equal(normalizePhone(''), null);
+  assert.equal(normalizePhone('+44 7700 900123'), '+447700900123');
+  assert.equal(maskPhone('+919876543210'), '+91 ••••• 43210');
+});
