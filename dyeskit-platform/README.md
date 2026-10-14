@@ -70,6 +70,11 @@ dyeskit-platform/
 - **Printable reports**: a one- or two-page A4 report for a village (village page) or a district
   (All data, or Home with a district chosen) — score, dimensions, change since last round, what
   needs attention, what households asked for. Save as PDF, print or share; totals only.
+- **Household report**: one A4 page for a single household (Print report on its survey; household
+  members get "Print my report" on Home) — score and band, the seven dimensions against the village
+  and Ladakh averages, change since its last round, what could be better, strengths and the
+  lowest-scoring answers. Personal, so only admins, supervisors and the household itself can print
+  it, and a household member's copy compares with Ladakh only, never their village.
 - **Map of villages** (Villages → See them on the map, staff only): every village as a dot coloured
   by score, sized by surveys, with each district's area shaded. 176 of 251 positions were looked up
   on OpenStreetMap and are approximate; admins can set or correct any village in Villages &

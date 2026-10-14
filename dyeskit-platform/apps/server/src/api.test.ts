@@ -547,3 +547,23 @@ test('a printable report for a village or a district, for staff only', async () 
   assert.equal((await call('GET', '/api/report', 'supervisor')).status, 400);
   assert.equal((await call('GET', `/api/report?village_id=${stok}`, 'sonam')).status, 403);
 });
+
+test('a printable household report: supervisors, admins and the household itself only', async () => {
+  const row = (await call('GET', '/api/submissions', 'supervisor')).body.rows.find((x: any) => x.source !== 'self');
+  const staffSurvey = row.id;
+  const r = await call('GET', `/api/submissions/${staffSurvey}/report`, 'supervisor');
+  assert.equal(r.status, 200);
+  assert.match(r.body, new RegExp(`<h1>Household ${row.householdCode}</h1>`));
+  assert.match(r.body, new RegExp(`${row.village} average`));                 // staff compare with the village…
+  assert.match(r.body, /Ladakh average/);                                       // …and with Ladakh
+  assert.match(r.body, /<svg/);                                                // the radar
+  assert.equal((await call('GET', `/api/submissions/${staffSurvey}/report`, 'admin2')).status, 200);
+  for (const who of ['analyst', 'household', 'sonam']) assert.equal((await call('GET', `/api/submissions/${staffSurvey}/report`, who)).status, 403);
+  // a household member prints their own — compared with Ladakh only, never their village
+  const mine = (await call('GET', '/api/submissions', 'sonam')).body.rows[0];
+  const own = await call('GET', `/api/submissions/${mine.id}/report`, 'sonam');
+  assert.equal(own.status, 200);
+  assert.match(own.body, /Ladakh average/);
+  assert.doesNotMatch(own.body, new RegExp(`${mine.village} average`));
+  assert.equal((await call('GET', `/api/submissions/${mine.id}`, 'sonam')).body.canReport, true);
+});

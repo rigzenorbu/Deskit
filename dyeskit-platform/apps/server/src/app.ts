@@ -7,12 +7,12 @@ import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import {
   BANDS, CONSENT_TEXT, DIMENSIONS, DISTRICTS, ITEMS, QUESTIONNAIRE_VERSION, ROLES, ROLE_RIGHTS, SCORING_VERSION, SECTIONS,
-  PUBLIC_MIN_SURVEYS, compareRounds, districtName, ORGANISATION, PRIVACY_POLICY, PRIVACY_UPDATED, RESPONDENT_SURVEY_LIMIT, maskPhone, normalizePhone, surveyIssues, computeDashboard, computeInsights, publicDashboard, scoreHousehold, type Role,
+  PUBLIC_MIN_SURVEYS, compareRounds, districtName, ORGANISATION, PRIVACY_POLICY, PRIVACY_UPDATED, RESPONDENT_SURVEY_LIMIT, maskPhone, normalizePhone, surveyIssues, computeDashboard, computeInsights, publicDashboard, scoreHousehold, SIGNALS, type Answers, type Role,
 } from '@dyeskit/core';
 import { audit, type Db } from './db';
 import { CODE_MINUTES, checkCode, createCode, createTicket, redeemTicket } from './otp';
 import { phoneSignInAvailable, revealCodes, sendSms } from './sms';
-import { reportHtml } from './report';
+import { householdReportHtml, reportHtml } from './report';
 import { SUGGESTIONS, ask, assistantMode, type ChatTurn } from './assistant';
 import {
   NO_PASSWORD, PASSWORD_RULE, assignedVillageIds, bearer, createSession, endSession, eraseUser, hashPassword, passwordOk, rightsOf, scopeOf,
@@ -406,7 +406,47 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
       })() : [],
       canEdit: R.editAny || householdOwns(u, s) || (R.read !== 'own' && s.collector_id === u.id && s.status !== 'approved'),
       canReview: R.review, canDelete: R.delete || householdOwns(u, s),
+      canReport: R.review || householdOwns(u, s),
     };
+  });
+
+  /**
+   * A printable report for one household: its score, the seven dimensions against the averages,
+   * what could be better and its strengths. Personal, so only admins and supervisors (who review
+   * surveys) and the household itself; a household member is compared with Ladakh only — they
+   * never see village-level figures.
+   */
+  app.get('/api/submissions/:id/report', async (req, reply) => {
+    const u = signedIn(req);
+    const R = rightsOf(u);
+    const s = await loadSubmission(u, (req.params as { id: string }).id);
+    if (s.deleted_at) throw fail(404, 'Survey not found.');
+    need(R.review || householdOwns(u, s), 'Household reports are for supervisors, admins and the household itself.');
+    const answers = await getAnswers(db, s.id);
+    // averages over this round's surveys that count (self-reported ones once approved)
+    const round = (await loadRows(db, null)).filter(r => counts(r) && r.roundId === s.round_id);
+    const average = async (label: string, rows: typeof round, villageIds: number[] | null) => {
+      const o = computeDashboard(rows, await villagesInfo(db, villageIds)).overall;
+      return { label, score: o.score, dims: o.dims };
+    };
+    const compare = [
+      ...(R.review ? [await average(`${s.village} average`, round.filter(r => r.villageId === s.village_id), [s.village_id])] : []),
+      await average('Ladakh average', round, null),
+    ];
+    const before = (await db.query<{ id: string; round_name: string }>(
+      `SELECT su.id, rd.name AS round_name FROM submissions su JOIN rounds rd ON rd.id = su.round_id
+       WHERE su.household_id = $1 AND su.round_id <> $2 AND su.deleted_at IS NULL AND rd.started_at < (SELECT started_at FROM rounds WHERE id = $2)
+       ORDER BY rd.started_at DESC LIMIT 1`, [s.household_id, s.round_id])).rows[0];
+    const signals = SIGNALS.filter(sig => { try { return sig.test(answers as Answers); } catch { return false; } });
+    const html = householdReportHtml({
+      householdCode: s.household_code, headName: s.head_name, village: s.village, district: s.district, roundName: s.round_name,
+      submittedAt: s.submitted_at ? new Date(s.submitted_at).toISOString() : null, status: s.status,
+      score: scoreHousehold(answers), compare, signals, generatedBy: u.name,
+      previous: before ? { roundName: before.round_name, score: scoreHousehold(await getAnswers(db, before.id)) } : null,
+    });
+    await audit(db, u, 'report', 'submission', s.id);
+    reply.header('Content-Type', 'text/html; charset=utf-8');
+    return html;
   });
 
   /** Upload surveys collected on a phone (works for one or a whole offline batch). */

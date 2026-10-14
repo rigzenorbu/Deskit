@@ -18,3 +18,14 @@ export function ReportButton({ villageId, district, label, style }: { villageId?
   };
   return <Button title={label ?? (Platform.OS === 'web' ? 'Print report' : 'Share report (PDF)')} icon="printer" kind="secondary" small loading={busy} onPress={go} style={style} />;
 }
+
+/** "Print report" for one household's survey: supervisors, admins and the household itself (the server checks). */
+export function HouseholdReportButton({ submissionId, label, style }: { submissionId: string; label?: string; style?: StyleProp<ViewStyle> }) {
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true);
+    try { await shareReport({}, `/api/submissions/${submissionId}/report`); }
+    catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
+  };
+  return <Button title={label ?? (Platform.OS === 'web' ? 'Print report' : 'Share report (PDF)')} icon="printer" kind="secondary" small loading={busy} onPress={go} style={style} />;
+}

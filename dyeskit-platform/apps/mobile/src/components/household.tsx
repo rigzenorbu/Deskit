@@ -20,6 +20,7 @@ import { BarList, Radar, Ring, ShareBar, TrendChart } from './charts';
 import { Hero, Logo } from './scenery';
 import { AlertsBanner } from './AlertsBanner';
 import { RoundChange } from './RoundChange';
+import { HouseholdReportButton } from './ReportButton';
 
 interface Mine { total: number; rows: { id: string; householdCode: string; village: string; district: string; status: string; submittedAt: string; score: number | null; band: number | null; roundId: number; round: string }[] }
 
@@ -87,7 +88,10 @@ export function HouseholdHome() {
                     { label: 'Your household', values: DIMENSIONS.map(x => detail.data!.score.dims[x.id].score), color: c.lake },
                   ]} />
               ) : null}
-              <Button title="View, edit or delete your answers" icon="file-text" kind="secondary" onPress={() => router.push(`/submission/${sent.id}`)} style={{ marginTop: SPACE.md }} />
+              <Row wrap gap={10} style={{ marginTop: SPACE.md }}>
+                <Button title="View, edit or delete your answers" icon="file-text" kind="secondary" onPress={() => router.push(`/submission/${sent.id}`)} />
+                <HouseholdReportButton submissionId={sent.id} label="Print my report" />
+              </Row>
             </Card>
           ) : waiting ? (
             <Card style={{ borderLeftWidth: 4, borderLeftColor: waiting.status === 'failed' ? c.danger : c.warning }}>

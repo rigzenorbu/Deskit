@@ -12,13 +12,14 @@ import { BandPill, Button, Card, ErrorBox, Input, Loading, Row, Screen, SectionT
 import { BarList, Ring } from '@/components/charts';
 import { QuestionInput } from '@/components/questions';
 import { TopBar } from '@/components/TopBar';
+import { HouseholdReportButton } from '@/components/ReportButton';
 
 interface Detail {
   submission: { id: string; village: string; villageId: number; district: string; status: string; householdCode: string; headName: string | null; phone: string | null;
     collector: string | null; reviewer: string | null; reviewNote: string | null; submittedAt: string; durationMin: number | null; deletedAt: string | null; source?: string; round?: string };
   answers: Answers; score: HouseholdScore;
   history: { item_id: string; old_value: unknown; new_value: unknown; changed_at: string; reason: string | null; changed_by: string | null }[];
-  canEdit: boolean; canReview: boolean; canDelete: boolean;
+  canEdit: boolean; canReview: boolean; canDelete: boolean; canReport?: boolean;
   issues?: { id: string; label: string }[];
 }
 
@@ -104,7 +105,7 @@ export default function SubmissionDetail() {
           </View>
         </Card>
 
-        {(q.data.canReview || q.data.canEdit || q.data.canDelete) && !s.deletedAt ? (
+        {(q.data.canReview || q.data.canEdit || q.data.canDelete || q.data.canReport) && !s.deletedAt ? (
           <Row wrap gap={10} style={{ marginTop: SPACE.md }}>
             {q.data.canReview && s.status !== 'approved' && !editing ? <Button title="Approve" icon="check" small gradient={['#22B07D', '#14A3A8']} onPress={() => review.mutate('approved')} loading={review.isPending} /> : null}
             {q.data.canReview && s.status !== 'rejected' && !editing ? <Button title="Send back" icon="corner-up-left" small kind="secondary" onPress={() => setSheet('reject')} /> : null}
@@ -113,6 +114,7 @@ export default function SubmissionDetail() {
               // households correcting their own answers are not asked for a reason
               : own ? save.mutate('Updated by the household') : setSheet('save')} /> : null}
             {editing ? <Button title="Cancel" small kind="ghost" onPress={() => setEditing(false)} /> : null}
+            {q.data.canReport && !editing ? <HouseholdReportButton submissionId={s.id} label={own ? 'Print my report' : undefined} /> : null}
             {q.data.canDelete && !editing ? <Button title={own ? 'Delete my survey' : 'Delete'} icon="trash-2" small kind="ghost" onPress={() => setSheet('delete')} /> : null}
           </Row>
         ) : null}
