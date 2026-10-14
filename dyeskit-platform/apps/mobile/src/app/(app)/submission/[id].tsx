@@ -3,7 +3,7 @@ import { View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { DIMENSIONS, SECTIONS, isShown, scoreHousehold, type Answers, type HouseholdScore } from '@dyeskit/core';
+import { DIMENSIONS, SECTIONS, isShown, questionNo, scoreHousehold, type Answers, type HouseholdScore } from '@dyeskit/core';
 import { DIM_COLORS, FONT, RADIUS, SPACE, scoreColor, useTheme } from '@/theme';
 import { api } from '@/lib/api';
 import { useMeta } from '@/lib/auth';
@@ -126,7 +126,7 @@ export default function SubmissionDetail() {
                 return (
                   <View key={it.id} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: c.line }}>
                     <Row style={{ alignItems: 'flex-start' }}>
-                      <Text v="caption" faint style={{ width: 32, fontFamily: FONT.bold }}>{it.id}</Text>
+                      <Text v="caption" faint style={{ width: 32, fontFamily: FONT.bold }}>{questionNo(it.id)}</Text>
                       <View style={{ flex: 1 }}>
                         <Text v="small" muted>{it.q}</Text>
                         {!editing || it.type === 'village' ? <Text v="body" style={{ fontFamily: FONT.semibold, marginTop: 2 }}>{answerText(it.id, shown[it.id])}</Text> : null}
@@ -139,7 +139,7 @@ export default function SubmissionDetail() {
                     </Row>
                     {editing && it.type !== 'village' ? (
                       <View style={{ marginTop: 10, marginLeft: 32 }}>
-                        <QuestionInput item={it} value={draft[it.id]} accent={c.brand} villageName={s.village}
+                        <QuestionInput item={it} value={draft[it.id]} accent={c.brand} villageName={s.village} answers={draft}
                           onChange={v => setDraft(d => { const n = { ...d }; if (v === undefined) delete n[it.id]; else n[it.id] = v; return n; })} />
                       </View>
                     ) : null}
@@ -156,7 +156,7 @@ export default function SubmissionDetail() {
             <Card style={{ gap: 10 }}>
               {history.map((h, i) => (
                 <View key={i}>
-                  <Text v="small" style={{ fontFamily: FONT.semibold }}>{h.item_id}: {answerText(h.item_id, h.old_value)} → {answerText(h.item_id, h.new_value)}</Text>
+                  <Text v="small" style={{ fontFamily: FONT.semibold }}>{questionNo(h.item_id)}: {answerText(h.item_id, h.old_value)} → {answerText(h.item_id, h.new_value)}</Text>
                   <Text v="caption" muted>{h.changed_by ?? 'system'} · {fmtDateTime(h.changed_at)}{h.reason ? ` · “${h.reason}”` : ''}</Text>
                 </View>
               ))}

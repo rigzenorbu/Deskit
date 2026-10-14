@@ -5,6 +5,7 @@
 
 import { ITEMS } from './questionnaire';
 import { bmiPoints, type Answers, type HouseholdScore } from './scoring';
+import { householdSize, measuresOf } from './family';
 import { normalizePhone } from './phone';
 
 export interface SurveyIssue { id: string; label: string }
@@ -35,19 +36,21 @@ export function surveyIssues(s: { answers: Answers; score: HouseholdScore | null
   }
   if (!s.score || s.score.score === null) out.push({ id: 'incomplete', label: 'Not enough answers for a score' });
 
-  const m = a.B1 as { height_cm?: number; weight_kg?: number } | undefined;
-  if (m?.height_cm && m?.weight_kg) {
+  const wrong = measuresOf(a).flatMap(m => {
     const bmi = bmiPoints(m.height_cm, m.weight_kg)?.bmi;
-    if (bmi !== undefined && (bmi < R.bmiMin || bmi > R.bmiMax)) {
-      out.push({ id: 'bmi', label: `Height/weight look wrong (${m.height_cm} cm, ${m.weight_kg} kg — BMI ${bmi})` });
-    }
-  }
+    return bmi !== undefined && (bmi < R.bmiMin || bmi > R.bmiMax) ? [`${m.label}: ${m.height_cm} cm, ${m.weight_kg} kg — BMI ${bmi}`] : [];
+  });
+  if (wrong.length) out.push({ id: 'bmi', label: `Height/weight look wrong (${wrong.join('; ')})` });
 
   const age = Number(a.A5);
   if (a.A5 !== undefined && (!isFinite(age) || age < R.ageMin || age > R.ageMax)) out.push({ id: 'age', label: `Age looks wrong (${a.A5})` });
 
-  const size = Number(a.A7);
-  if (isFinite(size) && size > R.householdMax) out.push({ id: 'household', label: `Very large household (${size} people)` });
+  const size = householdSize(a);
+  if (size !== null && size > R.householdMax) out.push({ id: 'household', label: `Very large household (${size} people)` });
+
+  const jobs = a.A14 as { permanent?: number; temporary?: number } | undefined;
+  const working = (Number(jobs?.permanent) || 0) + (Number(jobs?.temporary) || 0);
+  if (size !== null && working > size) out.push({ id: 'jobs', label: `More people with a job (${working}) than in the family (${size})` });
 
   const scale = SCALE_ITEMS.map(id => a[id]).filter(v => v !== undefined && v !== null && v !== '');
   if (scale.length >= R.straightLineMin && new Set(scale.map(String)).size === 1) {

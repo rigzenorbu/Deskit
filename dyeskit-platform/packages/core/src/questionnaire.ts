@@ -22,6 +22,26 @@
  *   • healthcare distance and winter access are two separate questions
  *     (instead of being averaged into one indicator)
  *   • income bands and education use round steps of 25
+ *
+ * Changes in v3.1:
+ *   • household size (A7) is a family roster: number of males and females, and each one's age
+ *   • new A14: family members with a permanent job and with a temporary job
+ *   • A12: "Pastoralist" (was "Pastoralist (Changpa)")
+ *   • height and weight (B1) are optional, asked only if the family agrees (B1s), for each
+ *     family member on the roster; the BMI score is the average over the adults measured
+ *   • physical-wellness questions ask about the family as a whole; B6 uses plain words
+ *   • B9 no longer lists "Snowmelt storage"
+ *   • B11 ("We are satisfied with our family's physical health", agree/disagree) is replaced by
+ *     B12, a 1–5 rating of the family's overall physical health. B12 keeps its own id so earlier
+ *     B11 answers are never read as ratings.
+ *   • Emotional questions ask about the family. C4 (hope) is removed; new C8 family harmony,
+ *     C9 time together, C10 persistent worry, C11 knows where to get help. Ids are never reused.
+ *   • Social questions ask about the family and its village; D8 (young people who left) is removed —
+ *     A8 already counts members living away for work or study
+ *   • new F11: does the family have a loan (not scored), asked after savings (F3)
+ *   • new G6: how many family members can read and write (scored); G7: languages understood (not scored)
+ *   • H1 (how often you pray, daily/weekly…) is replaced by H8, the same idea rated 1–5; H2 (sense of
+ *     purpose) is removed
  */
 
 export type DimensionId = 'phy' | 'fin' | 'emo' | 'soc' | 'env' | 'int' | 'spi';
@@ -74,7 +94,12 @@ export interface Option {
   neutral?: boolean;
 }
 
-export type ItemType = 'village' | 'single' | 'scale' | 'multi' | 'number' | 'text' | 'measure' | 'rank3';
+/**
+ * family: the roster — males, females and each one's age (see family.ts)
+ * measure: height and weight for each family member on the roster
+ * counts: a few whole numbers side by side (fields)
+ */
+export type ItemType = 'village' | 'single' | 'scale' | 'multi' | 'number' | 'text' | 'measure' | 'rank3' | 'family' | 'counts';
 
 export interface Item {
   id: string;
@@ -89,7 +114,7 @@ export interface Item {
   countPoints?: number[];
   /** what is being counted, for the explanation ("support types") */
   counts?: string;
-  /** height + weight scored through BMI_TABLE */
+  /** height + weight scored through BMI_TABLE (adults only; the average over the family) */
   bmi?: true;
   required?: boolean;
   help?: string;
@@ -111,7 +136,7 @@ export interface Section {
   items: Item[];
 }
 
-export const QUESTIONNAIRE_VERSION = 'v3.0';
+export const QUESTIONNAIRE_VERSION = 'v3.1';
 
 const PNA: Option = { v: 'PNA', label: 'Prefer not to answer', neutral: true };
 const DK: Option = { v: 'DK', label: "Don't know", neutral: true };
@@ -133,6 +158,8 @@ export const BMI_TABLE: { from: number; to: number; points: number; label: strin
   { from: 16.0, to: 16.9, points: 30, label: 'Moderately thin (16.0–16.9)' },
 ];
 export const BMI_OTHER_POINTS = 0; // below 16.0 or 30.0 and above
+/** The cut-offs above are for adults; children's height and weight are recorded but not scored. */
+export const BMI_MIN_AGE = 18;
 
 export const CONSENT_TEXT =
   'Julley. I am working with Project DYESKIT, a study of village well-being in Ladakh. ' +
@@ -144,24 +171,29 @@ export const CONSENT_TEXT =
 export const SECTIONS: Section[] = [
   {
     id: 'A', title: 'Household & Demographic Profile', short: 'Household', icon: 'home',
-    note: 'Context for every other answer. Only education (A13) is scored.',
+    note: 'Context for every other answer. Only education (A13) is scored. Questions are about the whole family, except the respondent’s own age and gender.',
     items: [
       { id: 'A1', q: 'Village', type: 'village', required: true },
       { id: 'A4', q: 'Years household has lived here', type: 'number', unit: 'years', min: 0, max: 120 },
       { id: 'A5', q: 'Respondent age', type: 'number', unit: 'years', min: 18, max: 110, required: true },
       { id: 'A6', q: 'Gender', type: 'single', required: true, options: [o('male', 'Male'), o('female', 'Female'), o('other', 'Other'), PNA] },
-      { id: 'A7', q: 'Household size (usually resident)', type: 'number', unit: 'people', min: 1, max: 40, required: true },
+      { id: 'A7', q: 'Family members living in the household', type: 'family', required: true,
+        help: 'Count everyone who usually lives here, including children. Then give each person’s age.' },
       { id: 'A8', q: 'Members living away for work or study', type: 'number', unit: 'people', min: 0, max: 30 },
       { id: 'A9', q: 'Family type', type: 'single', options: [o('nuclear', 'Nuclear'), o('joint', 'Joint'), o('extended', 'Extended')] },
       { id: 'A10', q: 'Religion', type: 'single', options: [o('buddhist', 'Buddhist'), o('muslim', 'Muslim'), o('hindu', 'Hindu'), o('christian', 'Christian'), o('other', 'Other'), PNA] },
       { id: 'A11', q: 'Housing type', type: 'single', options: [o('traditional', 'Traditional stone / mud-brick'), o('concrete', 'Concrete-cement'), o('hybrid', 'Modern hybrid'), o('other', 'Other')] },
       {
         id: 'A12', q: "Main earner's occupation", type: 'single',
-        options: ['Farmer', 'Pastoralist (Changpa)', 'Tourism operator / guide', 'Homestay operator', 'Handicraft artisan',
+        options: ['Farmer', 'Pastoralist', 'Tourism operator / guide', 'Homestay operator', 'Handicraft artisan',
           'Government employee', 'Teacher', 'Healthcare worker', 'Transport operator', 'Small business',
           'Monk / Nun / religious', 'Army / defence', 'Daily-wage labour', 'Student', 'Homemaker', 'Other']
-          .map(t => o(t.toLowerCase().replace(/[^a-z]+/g, '_').replace(/^_|_$/g, ''), t)),
+          // "pastoralist_changpa" is the stored value from v3.0, kept so earlier surveys still read
+          .map(t => o(t === 'Pastoralist' ? 'pastoralist_changpa' : t.toLowerCase().replace(/[^a-z]+/g, '_').replace(/^_|_$/g, ''), t)),
       },
+      { id: 'A14', q: 'How many family members have a job?', type: 'counts',
+        help: 'Permanent: a regular job all year (government, army, private salary). Temporary: seasonal, contract or daily-wage work.',
+        fields: [{ k: 'permanent', label: 'Permanent job', unit: 'people', min: 0, max: 30 }, { k: 'temporary', label: 'Temporary job', unit: 'people', min: 0, max: 30 }] },
       {
         id: 'A13', q: 'Highest education in the household', type: 'single', dim: 'int', indicator: 'Education attained', required: true,
         options: [
@@ -175,56 +207,66 @@ export const SECTIONS: Section[] = [
   },
   {
     id: 'B', title: 'Physical Wellness', short: 'Physical', icon: 'heart',
-    note: 'B1: measure height and weight with the kit. Do not accept self-report — leave it blank if there is no kit.',
+    note: 'Questions are about the whole family. Height and weight are optional: ask only if the family is willing, and measure with the kit — do not accept self-report.',
     items: [
-      { id: 'B1', q: 'Measured height & weight', type: 'measure', dim: 'phy', indicator: 'Nutrition (BMI)', bmi: true,
+      { id: 'B1s', q: 'Is the family willing to share each member’s height and weight? (optional)', type: 'single',
+        options: [o('yes', 'Yes'), o('no', 'No, skip this')] },
+      { id: 'B1', q: 'Height & weight of each family member', type: 'measure', dim: 'phy', indicator: 'Nutrition (BMI)', bmi: true,
+        showIf: { item: 'B1s', in: ['yes'] },
+        help: 'Leave anyone blank who does not want to be measured. Only adults (18 and over) count in the score.',
         fields: [{ k: 'height_cm', label: 'Height', unit: 'cm', min: 100, max: 220 }, { k: 'weight_kg', label: 'Weight', unit: 'kg', min: 20, max: 200 }] },
-      { id: 'B2', q: 'Diagnosed chronic illness?', type: 'single', dim: 'phy', indicator: 'Chronic illness', options: [o('none', 'None', 100), o('managed', 'Managed with medication', 50), o('unmanaged', 'Unmanaged or severe', 0), DK] },
+      { id: 'B2', q: 'Does anyone in the family have a long-term illness diagnosed by a doctor?', type: 'single', dim: 'phy', indicator: 'Chronic illness', options: [o('none', 'None', 100), o('managed', 'Managed with medication', 50), o('unmanaged', 'Unmanaged or severe', 0), DK] },
       { id: 'B2a', q: 'If yes, which condition? (optional)', type: 'text', showIf: { item: 'B2', in: ['managed', 'unmanaged'] } },
-      { id: 'B3', q: 'Altitude symptoms (breathlessness, chronic headache, fatigue)?', type: 'single', dim: 'phy', indicator: 'Altitude symptoms', options: [o('never', 'Never', 100), o('occasionally', 'Occasionally', 50), o('frequently', 'Frequently', 0)] },
-      { id: 'B4', q: "Nearest health facility you'd use", type: 'single', dim: 'phy', indicator: 'Distance to healthcare', options: [o('in_village', 'In the village', 100), o('camp', 'Regular mobile camp', 100), o('1_10', '1–10 km', 75), o('11_20', '11–20 km', 50), o('over_20', 'More than 20 km', 0)] },
-      { id: 'B5', q: 'Last year, unable to reach care because of snow, road or distance?', type: 'single', dim: 'phy', indicator: 'Winter access to care', options: [o('never', 'Never', 100), o('once', 'Once', 50), o('more', 'More than once', 0)] },
-      { id: 'B6', q: 'Typical daily physical activity', type: 'single', dim: 'phy', indicator: 'Physical activity', options: [o('active', 'Active work (farming, herding, labour)', 100), o('moderate', 'Moderate', 50), o('sedentary', 'Sedentary', 0)] },
-      { id: 'B7', q: 'Adequate sleep (about 7 hours) most nights?', type: 'single', dim: 'phy', indicator: 'Sleep', options: [o('always', 'Always', 100), o('mostly', 'Mostly', 67), o('rarely', 'Rarely', 33), o('never', 'Never', 0)] },
-      { id: 'B8', q: 'Household toilet', type: 'single', dim: 'phy', indicator: 'Sanitation',
+      { id: 'B3', q: 'Do family members get altitude symptoms (breathlessness, constant headache, tiredness)?', type: 'single', dim: 'phy', indicator: 'Altitude symptoms', options: [o('never', 'Never', 100), o('occasionally', 'Occasionally', 50), o('frequently', 'Frequently', 0)] },
+      { id: 'B4', q: 'Nearest health facility the family would use', type: 'single', dim: 'phy', indicator: 'Distance to healthcare', options: [o('in_village', 'In the village', 100), o('camp', 'Regular mobile camp', 100), o('1_10', '1–10 km', 75), o('11_20', '11–20 km', 50), o('over_20', 'More than 20 km', 0)] },
+      { id: 'B5', q: 'Last year, was anyone in the family unable to reach care because of snow, road or distance?', type: 'single', dim: 'phy', indicator: 'Winter access to care', options: [o('never', 'Never', 100), o('once', 'Once', 50), o('more', 'More than once', 0)] },
+      { id: 'B6', q: 'How physically active is the family on a normal day?', type: 'single', dim: 'phy', indicator: 'Physical activity', options: [o('active', 'Very active — farming, herding or labour', 100), o('moderate', 'Somewhat active — walking, housework', 50), o('sedentary', 'Not active — mostly sitting', 0)] },
+      { id: 'B7', q: 'Do family members get enough sleep (about 7 hours) most nights?', type: 'single', dim: 'phy', indicator: 'Sleep', options: [o('always', 'Always', 100), o('mostly', 'Mostly', 67), o('rarely', 'Rarely', 33), o('never', 'Never', 0)] },
+      { id: 'B8', q: 'Family toilet', type: 'single', dim: 'phy', indicator: 'Sanitation',
         options: [o('proper', 'Toilet with proper waste disposal', 100), o('dry_compost', 'Traditional dry-compost toilet', 100), o('no_disposal', 'Toilet without proper disposal', 50), o('none', 'No toilet', 0)],
         help: 'A dry-compost toilet scores full marks: it is a water-saving, cold-adapted technology, not a deficiency.' },
-      { id: 'B9', q: 'Drinking water source(s)', type: 'multi', options: [o('piped', 'Piped'), o('yura', 'Glacier-melt channel (yura)'), o('chumik', 'Spring (chumik)'), o('stream', 'Stream / river'), o('borewell', 'Borewell'), o('tanker', 'Tanker'), o('snowmelt', 'Snowmelt storage')] },
-      { id: 'B10', q: 'Drinking water quality', type: 'single', dim: 'env', indicator: 'Drinking water quality', options: [o('safe', 'Safe as it is', 100), o('needs_treatment', 'Needs boiling / filtering', 50), o('occasional', 'Sometimes contaminated', 25), o('unsafe', 'Unsafe', 0), DK] },
-      { id: 'B11', q: 'I am satisfied with my physical health.', type: 'scale', dim: 'phy', indicator: 'Self-rated health', options: AGREE() },
+      { id: 'B9', q: 'Where does the family get drinking water?', type: 'multi', options: [o('piped', 'Piped'), o('yura', 'Glacier-melt channel (yura)'), o('chumik', 'Spring (chumik)'), o('stream', 'Stream / river'), o('borewell', 'Borewell'), o('tanker', 'Tanker')] },
+      { id: 'B10', q: 'Quality of the family’s drinking water', type: 'single', dim: 'env', indicator: 'Drinking water quality', options: [o('safe', 'Safe as it is', 100), o('needs_treatment', 'Needs boiling / filtering', 50), o('occasional', 'Sometimes contaminated', 25), o('unsafe', 'Unsafe', 0), DK] },
+      { id: 'B12', q: 'Overall, how would you rate your family’s physical health?', type: 'scale', dim: 'phy', indicator: 'Overall physical health',
+        options: AGREE(['Very poor', 'Poor', 'Fair', 'Good', 'Very good']), help: '1 = very poor, 5 = very good.' },
     ],
   },
   {
     id: 'C', title: 'Mental & Emotional Wellness', short: 'Emotional', icon: 'smile',
+    note: 'Questions are about the whole family. Ask gently; any question can be skipped.',
     items: [
-      { id: 'C1', q: 'Overall, how do you feel emotionally?', type: 'single', dim: 'emo', indicator: 'Emotional state', options: [o('fit', 'Fit (calm, focused)', 100), o('stable', 'Generally stable', 50), o('challenges', 'Facing challenges', 0), PNA] },
-      { id: 'C2', q: 'What emotional support can you turn to?', type: 'multi', dim: 'emo', indicator: 'Support system',
+      { id: 'C1', q: 'Overall, how is the family feeling emotionally these days?', type: 'single', dim: 'emo', indicator: 'Emotional state', options: [o('fit', 'Calm and settled', 100), o('stable', 'Mostly fine', 50), o('challenges', 'Going through a hard time', 0), PNA] },
+      { id: 'C2', q: 'Where can family members turn for emotional support?', type: 'multi', dim: 'emo', indicator: 'Support system',
         countPoints: [0, 50, 75, 100], counts: 'kinds of support ticked',
-        options: [o('family', 'Family / friends'), o('religious', 'Religious / spiritual community'), o('professional', 'Professional (counselling)'), o('coping', 'Personal coping (prayer, walking, art)'), o('none', 'None'), PNA] },
-      { id: 'C3', q: 'How do you recover from stress?', type: 'single', dim: 'emo', indicator: 'Stress recovery', options: [o('low', 'Low stress, quick recovery', 100), o('moderate', 'Moderate', 50), o('high', 'High stress, hard to recover', 0), PNA] },
-      { id: 'C4', q: 'In the last month I have felt hopeful about the future.', type: 'scale', dim: 'emo', indicator: 'Hope', options: AGREE() },
-      { id: 'C5', q: 'Overall, how satisfied are you with life?', type: 'scale', dim: 'emo', indicator: 'Life satisfaction', options: AGREE(['Very dissatisfied', 'Dissatisfied', 'Neutral', 'Satisfied', 'Very satisfied']) },
-      { id: 'C6', q: 'I feel isolated or cut off during the winter months.', type: 'scale', dim: 'emo', indicator: 'Winter isolation', options: AGREE_REVERSED(),
+        options: [o('family', 'Each other, relatives or friends'), o('religious', 'Monastery, mosque or religious community'), o('professional', 'Doctor or counsellor'), o('coping', 'Own ways — prayer, walking, music, crafts'), o('none', 'No one'), PNA] },
+      { id: 'C3', q: 'How does the family handle stress and worries?', type: 'single', dim: 'emo', indicator: 'Stress recovery', options: [o('low', 'Little stress, and we recover quickly', 100), o('moderate', 'Some stress, we manage', 50), o('high', 'A lot of stress, hard to recover', 0), PNA] },
+      { id: 'C8', q: 'How well do family members get along with each other?', type: 'single', dim: 'emo', indicator: 'Family harmony', options: [o('well', 'Very well — rarely any quarrels', 100), o('mostly', 'Mostly well — quarrels sometimes', 50), o('tense', 'Often tense or quarrelling', 0), PNA] },
+      { id: 'C9', q: 'How often does the family spend time together — meals, talking, prayers or festivals?', type: 'single', dim: 'emo', indicator: 'Time together', options: [o('daily', 'Most days', 100), o('weekly', 'A few times a week', 67), o('sometimes', 'Only sometimes', 33), o('rarely', 'Rarely', 0)] },
+      { id: 'C10', q: 'Is anyone in the family sad, worried or unable to sleep because of worries most of the time?', type: 'single', dim: 'emo', indicator: 'Persistent worry', options: [o('no', 'No one', 100), o('sometimes', 'Someone, sometimes', 50), o('often', 'Yes, someone often feels this way', 0), PNA],
+        help: 'Here "yes" is the difficult answer, so "No one" scores highest.' },
+      { id: 'C11', q: 'If someone in the family felt very low, would you know where to get help?', type: 'single', dim: 'emo', indicator: 'Knows where to get help',
+        help: 'For example a doctor, health worker, amchi, counsellor, lama or imam.', options: [o('yes', 'Yes', 100), o('unsure', 'Not sure', 50), o('no', 'No', 0)] },
+      { id: 'C5', q: 'Overall, how satisfied is the family with life?', type: 'scale', dim: 'emo', indicator: 'Life satisfaction', options: AGREE(['Very dissatisfied', 'Dissatisfied', 'Neutral', 'Satisfied', 'Very satisfied']) },
+      { id: 'C6', q: 'Our family feels isolated or cut off during the winter months.', type: 'scale', dim: 'emo', indicator: 'Winter isolation', options: AGREE_REVERSED(),
         help: 'Here agreeing is the difficult answer, so "Strongly agree" scores 0.' },
-      { id: 'C7', q: 'Do household members regularly use any of these?', type: 'multi', sensitive: true,
+      { id: 'C7', q: 'Do family members regularly use any of these?', type: 'multi', sensitive: true,
         options: [o('tobacco', 'Tobacco'), o('alcohol', 'Alcohol'), o('chhang', 'Local brew (chhang)'), o('none', 'None'), PNA],
         help: 'Not scored. Reported only as a village-level share. Where literacy allows, hand the respondent the card to mark privately.' },
     ],
   },
   {
     id: 'D', title: 'Social Wellness', short: 'Social', icon: 'users',
+    note: 'Questions are about the family and its village.',
     items: [
-      { id: 'D1', q: 'Participation in community activities (festivals, meetings, collective labour)', type: 'single', dim: 'soc', indicator: 'Community participation', options: [o('regular', 'Regular', 100), o('occasional', 'Occasional', 50), o('none', 'None', 0)] },
-      { id: 'D2', q: 'I trust the people in my village.', type: 'scale', dim: 'soc', indicator: 'Trust', options: AGREE() },
-      { id: 'D3', q: 'Level of conflict or tension in the village', type: 'single', dim: 'soc', indicator: 'Conflict level', options: [o('high_trust', 'High trust, low conflict', 100), o('moderate', 'Moderate', 50), o('frequent', 'Frequent conflict', 0)] },
-      { id: 'D4', q: 'Do women and marginalised groups take part equally in decisions?', type: 'single', dim: 'soc', indicator: 'Inclusion', options: [o('equal', 'Equally', 100), o('partial', 'Partly', 50), o('exclusion', 'Excluded', 0)] },
-      { id: 'D5', q: 'Elders are respected and youth are engaged in village life.', type: 'scale', dim: 'soc', indicator: 'Between generations', options: AGREE() },
-      { id: 'D6', q: 'Which village institutions can you turn to?', type: 'multi', dim: 'soc', indicator: 'Village institutions',
-        countPoints: [0, 50, 100], counts: 'institutions ticked',
-        options: [o('committee', 'Village Committee'), o('goba', 'Goba'), o('lahdc', 'LAHDC body'), o('monastery', 'Monastery committee'), o('anjuman', 'Mosque / anjuman committee'), o('shg', "Women's group / SHG"), o('youth', 'Youth group'), o('none', 'None function')] },
-      { id: 'D7', q: 'My community would help my household in an emergency.', type: 'scale', dim: 'soc', indicator: 'Emergency support', options: AGREE() },
-      { id: 'D8', q: 'Have young people from the household left for work or study in the last 3 years?', type: 'single', options: [o('no', 'No'), o('yes', 'Yes')] },
-      { id: 'D8a', q: 'If yes, how many?', type: 'number', unit: 'people', min: 0, max: 20, showIf: { item: 'D8', in: ['yes'] } },
+      { id: 'D1', q: 'How often does the family take part in community activities — festivals, village meetings, shared work?', type: 'single', dim: 'soc', indicator: 'Community participation', options: [o('regular', 'Regularly', 100), o('occasional', 'Sometimes', 50), o('none', 'Never', 0)] },
+      { id: 'D2', q: 'Our family trusts the people in our village.', type: 'scale', dim: 'soc', indicator: 'Trust', options: AGREE() },
+      { id: 'D3', q: 'How much tension or conflict is there in the village?', type: 'single', dim: 'soc', indicator: 'Conflict level', options: [o('high_trust', 'Very little — people get along', 100), o('moderate', 'Some', 50), o('frequent', 'A lot of conflict', 0)] },
+      { id: 'D4', q: 'Do women and less-heard groups have an equal say in village decisions?', type: 'single', dim: 'soc', indicator: 'Inclusion', options: [o('equal', 'Yes, an equal say', 100), o('partial', 'Partly', 50), o('exclusion', 'No, they are left out', 0)] },
+      { id: 'D5', q: 'In our village, elders are respected and young people take part in village life.', type: 'scale', dim: 'soc', indicator: 'Between generations', options: AGREE() },
+      { id: 'D6', q: 'Which village groups can the family turn to for help?', type: 'multi', dim: 'soc', indicator: 'Village institutions',
+        countPoints: [0, 50, 100], counts: 'groups ticked',
+        options: [o('committee', 'Village committee'), o('goba', 'Goba (village head)'), o('lahdc', 'LAHDC councillor or office'), o('monastery', 'Monastery committee'), o('anjuman', 'Mosque / anjuman committee'), o('shg', "Women's group / SHG"), o('youth', 'Youth group'), o('none', 'None of these work')] },
+      { id: 'D7', q: 'Our village would help our family in an emergency.', type: 'scale', dim: 'soc', indicator: 'Emergency support', options: AGREE() },
     ],
   },
   {
@@ -251,6 +293,9 @@ export const SECTIONS: Section[] = [
       { id: 'F1', q: 'Yearly household income (all sources)', type: 'single', dim: 'fin', indicator: 'Income level', options: [o('lt1', 'Below ₹1 lakh', 0), o('1_3', '₹1–3 lakh', 25), o('3_5', '₹3–5 lakh', 50), o('5_10', '₹5–10 lakh', 75), o('gt10', 'Above ₹10 lakh', 100), PNA] },
       { id: 'F2', q: 'Does income cover needs through the year?', type: 'single', dim: 'fin', indicator: 'Income sufficiency', options: [o('surplus', 'Covers needs, with some left over', 100), o('basics', 'Covers basics only', 50), o('no', 'Does not cover', 0)] },
       { id: 'F3', q: 'Savings or assets to fall back on?', type: 'single', dim: 'fin', indicator: 'Savings / assets', options: [o('yes', 'Yes — savings, land, livestock or SHG', 100), o('limited', 'Limited', 50), o('none', 'None, or in debt', 0)] },
+      { id: 'F11', q: 'Does the family have a loan at the moment?', type: 'single',
+        help: 'Any loan — bank, Kisan credit card, SHG, moneylender, or relatives. Not scored.',
+        options: [o('no', 'No'), o('yes', 'Yes'), PNA] },
       { id: 'F4', q: 'Number of separate income sources', type: 'number', dim: 'fin', indicator: 'Livelihood diversity', min: 0, max: 10, unit: 'sources',
         countPoints: [0, 50, 75, 100], counts: 'income sources' },
       { id: 'F5', q: 'The household earns from…', type: 'multi', options: [o('farming', 'Farming'), o('livestock', 'Livestock / pashmina'), o('tourism', 'Tourism / guiding / transport'), o('homestay', 'Homestay'), o('handicraft', 'Handicraft'), o('salary', 'Govt salary / pension'), o('daily_wage', 'Daily wage'), o('business', 'Small business'), o('remittance', 'Remittance'), o('other', 'Other')] },
@@ -272,13 +317,19 @@ export const SECTIONS: Section[] = [
       { id: 'G5', q: 'Barriers to education in your household?', type: 'multi', dim: 'int', indicator: 'Education barriers',
         countPoints: [100, 67, 33, 0], counts: 'barriers ticked (fewer is better)',
         options: [o('distance', 'Distance'), o('cost', 'Cost'), o('winter', 'Winter closure'), o('teachers', 'Lack of teachers'), o('language', 'Language of instruction'), o('none', 'No barriers')] },
+      { id: 'G6', q: 'How many family members can read and write?', type: 'single', dim: 'int', indicator: 'Literacy',
+        help: 'In any language. Count only those aged 7 and over.',
+        options: [o('all', 'Everyone', 100), o('most', 'Most of them', 75), o('half', 'About half', 50), o('few', 'Only one or a few', 25), o('none', 'No one', 0)] },
+      { id: 'G7', q: 'Which of these languages can someone in the family understand?', type: 'multi',
+        help: 'Not scored. Tick a language if at least one family member understands it.',
+        options: [o('hindi', 'Hindi'), o('urdu', 'Urdu'), o('english', 'English'), o('foreign', 'A foreign language (e.g. French, German, Japanese)'), o('none', 'None of these')] },
     ],
   },
   {
     id: 'H', title: 'Spiritual & Cultural Wellness', short: 'Spiritual', icon: 'sun',
     items: [
-      { id: 'H1', q: 'How regularly do you pray, meditate or do religious practice?', type: 'single', dim: 'spi', indicator: 'Spiritual practice', options: [o('daily', 'Daily', 100), o('weekly', 'Weekly', 67), o('occasional', 'Occasionally', 33), o('never', 'Never', 0)] },
-      { id: 'H2', q: 'I have a clear sense of purpose and direction.', type: 'scale', dim: 'spi', indicator: 'Sense of purpose', options: AGREE() },
+      { id: 'H8', q: 'How much are prayer, meditation or religious practice part of the family’s life?', type: 'scale', dim: 'spi', indicator: 'Spiritual practice',
+        options: AGREE(['Not at all', 'A little', 'Somewhat', 'Quite a lot', 'Very much']), help: '1 = not at all, 5 = very much — part of every day.' },
       { id: 'H3', q: 'My decisions are guided by ethical or spiritual values.', type: 'scale', dim: 'spi', indicator: 'Ethical living', options: AGREE() },
       { id: 'H4', q: 'I generally feel inner peace and contentment.', type: 'scale', dim: 'spi', indicator: 'Inner peace', options: AGREE() },
       { id: 'H5', q: 'Can you reach a monastery, mosque or place of worship when you wish?', type: 'single', dim: 'spi', indicator: 'Access to worship', options: [o('in_village', 'Yes, in the village', 100), o('within_10', 'Within 10 km', 67), o('beyond_10', 'Beyond 10 km', 33), o('seasonal', 'Only in some seasons', 0)] },
@@ -305,6 +356,19 @@ export const SECTIONS: Section[] = [
 export const ITEMS: Record<string, Item & { section: string }> = {};
 for (const s of SECTIONS) for (const it of s.items) ITEMS[it.id] = { ...it, section: s.id };
 
+/**
+ * The number people see: section letter + position (C1, C2, C3…), always in order with no gaps.
+ * The id (it.id) is what answers are stored under and never changes, so a removed question's id
+ * is never reused and earlier surveys keep their meaning — the shown number can change freely.
+ */
+export const QUESTION_NO: Record<string, string> = {};
+for (const s of SECTIONS) {
+  let n = 0;
+  // a follow-up shares the number of the question it follows: B2 → B2a
+  for (const it of s.items) QUESTION_NO[it.id] = it.showIf && QUESTION_NO[it.showIf.item] ? `${QUESTION_NO[it.showIf.item]}a` : `${s.id}${++n}`;
+}
+export const questionNo = (id: string) => QUESTION_NO[id] ?? id;
+
 /** Scored questions, in questionnaire order. */
 export const SCORED_ITEMS = Object.values(ITEMS).filter(i => i.dim);
 
@@ -313,6 +377,13 @@ export const DIM_ITEMS = Object.fromEntries(
   DIMENSIONS.map(d => [d.id, SCORED_ITEMS.filter(i => i.dim === d.id)]),
 ) as Record<DimensionId, (Item & { section: string })[]>;
 
-/** Should a conditional question be shown, given the answers so far? */
+const filled = (v: unknown) => v !== undefined && v !== null && v !== '';
+
+/**
+ * Should a conditional question be shown, given the answers so far? Also shown when the
+ * question it depends on was never asked but it has an answer — a survey from an earlier
+ * questionnaire (e.g. height and weight before v3.1 asked B1s).
+ */
 export const isShown = (item: Item, answers: Record<string, unknown>) =>
-  !item.showIf || item.showIf.in.includes(String(answers[item.showIf.item] ?? ''));
+  !item.showIf || item.showIf.in.includes(String(answers[item.showIf.item] ?? ''))
+  || (!filled(answers[item.showIf.item]) && filled(answers[item.id]));

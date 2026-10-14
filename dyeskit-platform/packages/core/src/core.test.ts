@@ -242,7 +242,8 @@ test('progress counts only the questions showing, and 100% means every one answe
   for (let i = 0; i < 3; i++) {
     for (const s of SECTIONS) for (const it of s.items) {
       if (it.type === 'text' || !isShown(it, all)) continue;
-      all[it.id] = it.options?.length ? (it.type === 'multi' || it.type === 'rank3' ? [it.options[0].v] : it.options[0].v) : it.type === 'measure' ? { height_cm: 160, weight_kg: 60 } : 3;
+      all[it.id] = it.options?.length ? (it.type === 'multi' || it.type === 'rank3' ? [it.options[0].v] : it.options[0].v) : it.type === 'measure' ? { height_cm: 160, weight_kg: 60 }
+        : it.type === 'family' ? { male: 1, female: 1, ages: { male: [40], female: [38] } } : it.type === 'counts' ? { permanent: 1, temporary: 0 } : 3;
     }
   }
   const full = surveyProgress(all);
@@ -257,3 +258,53 @@ test('progress counts only the questions showing, and 100% means every one answe
   assert.equal(milestoneFor(50).at, 50);
   assert.equal(milestoneFor(100).at, 100);
 });
+
+/* ------------------------------------------------- family roster and per-member BMI (v3.1) */
+import { familyMembers, familyText, householdSize, measuresOf } from './index';
+
+test('the family roster gives household size, each member, and reads v3.0 numbers too', () => {
+  const a = { A7: { male: 2, female: 1, ages: { male: [45, 12], female: [40] } } };
+  assert.equal(householdSize(a), 3);
+  assert.deepEqual(familyMembers(a).map(m => `${m.key}:${m.label}:${m.age}`), ['m1:Male 1:45', 'm2:Male 2:12', 'f1:Female 1:40']);
+  assert.equal(familyText(a.A7), '2 male (45, 12) · 1 female (40)');
+  assert.equal(householdSize({ A7: 5 }), 5);                       // a v3.0 survey
+  assert.equal(householdSize({ A7: { male: 0, female: 0, ages: { male: [], female: [] } } }), null);
+});
+
+test('BMI is optional, averaged over measured adults, and skips children', () => {
+  const B1 = scoreQuestion.bind(null, ITEMS.B1);
+  const family = { A7: { male: 2, female: 1, ages: { male: [45, 8], female: [40] } }, B1s: 'yes' };
+  const a = { ...family, B1: { m1: { height_cm: 170, weight_kg: 63 }, m2: { height_cm: 120, weight_kg: 22 }, f1: { height_cm: 170, weight_kg: 70 } } };
+  assert.equal(B1(a)!.points, 85);                                 // (100 + 70) ÷ 2 — the 8-year-old is not scored
+  assert.equal(measuresOf(a).length, 3);
+  assert.equal(B1({ ...a, B1s: 'no' }), null);                     // declined: not scored
+  assert.equal(B1({ ...family, B1: { m2: { height_cm: 120, weight_kg: 22 } } }), null);   // only a child measured
+  assert.equal(B1({ B1: { height_cm: 170, weight_kg: 63 } })!.points, 100);               // a v3.0 survey still scores
+  // B1 shows only after the family agrees — but a v3.0 answer stays visible
+  assert.equal(isShown(ITEMS.B1, {}), false);
+  assert.equal(isShown(ITEMS.B1, { B1s: 'yes' }), true);
+  assert.equal(isShown(ITEMS.B1, { B1: { height_cm: 170, weight_kg: 63 } }), true);
+});
+
+test('quality checks read the roster: a mistyped member, more jobs than people', () => {
+  const ids = (a: Record<string, unknown>) => surveyIssues({ answers: a, score: scoreHousehold(a), durationMin: 25 }).map(i => i.id);
+  const A7 = { male: 1, female: 1, ages: { male: [50], female: [48] } };
+  assert.ok(ids({ A7, B1s: 'yes', B1: { f1: { height_cm: 160, weight_kg: 600 } } }).includes('bmi'));
+  assert.ok(ids({ A7, A14: { permanent: 2, temporary: 1 } }).includes('jobs'));
+  assert.ok(!ids({ A7, A14: { permanent: 1, temporary: 1 } }).includes('jobs'));
+  assert.ok(ids({ A7: { male: 12, female: 10, ages: { male: [], female: [] } } }).includes('household'));
+});
+
+test('question numbers on screen run in order with no gaps; stored ids never change', () => {
+  const { questionNo } = ITEMS_NO;
+  for (const s of SECTIONS) {
+    const main = s.items.filter(it => !it.showIf).map(it => questionNo(it.id));
+    assert.deepEqual(main, main.map((_, i) => `${s.id}${i + 1}`));
+  }
+  assert.equal(questionNo('B2a'), 'B2a');          // a follow-up shares its question's number
+  assert.equal(questionNo('B1'), 'B1a');
+  assert.equal(questionNo('C8'), 'C4');            // first new emotional question fills the gap left by the old C4
+  assert.equal(questionNo('B1s'), 'B1');           // the consent question comes first in Physical
+  assert.equal(questionNo('B12'), 'B11');
+});
+import * as ITEMS_NO from './index';

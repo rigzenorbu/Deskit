@@ -21,16 +21,21 @@ const call = async (method: string, url: string, who?: string, body?: unknown) =
   const json = r.headers['content-type']?.toString().includes('json') ? r.json() : r.body;
   return { status: r.statusCode, body: json as any };
 };
+/** Register by email: a code is first texted to the phone (shown here, as no SMS is sent in tests). */
+const register = async (phone: string, body: Record<string, unknown>) => {
+  const sent = await call('POST', '/api/auth/otp/send', undefined, { phone, purpose: 'register' });
+  return call('POST', '/api/auth/register', undefined, { ...body, phone, code: sent.body.devCode });
+};
 const villageId = async (district: string, code: string) =>
   (await db.query<{ id: number }>('SELECT id FROM villages WHERE district=$1 AND code=$2', [district, code])).rows[0].id;
 const fullAnswers = { A5: 40, A6: 'female', A7: 5, A13: 'secondary',
-  B2: 'none', B3: 'never', B4: '1_10', B5: 'never', B6: 'active', B7: 'mostly', B8: 'proper', B10: 'safe', B11: '4',
-  C1: 'stable', C2: ['family', 'religious'], C3: 'moderate', C4: '4', C5: '4', C6: '2',
+  B2: 'none', B3: 'never', B4: '1_10', B5: 'never', B6: 'active', B7: 'mostly', B8: 'proper', B10: 'safe', B12: '4',
+  C1: 'stable', C2: ['family', 'religious'], C3: 'moderate', C8: 'mostly', C9: 'daily', C10: 'no', C11: 'yes', C5: '4', C6: '2',
   D1: 'regular', D2: '4', D3: 'moderate', D4: 'partial', D5: '4', D6: ['committee'], D7: '5',
   E1: 'scarce_1_3', E3: 'mixed', E4: 'partial', E5: 'lpg', E6: ['storage'],
   F1: '3_5', F2: 'basics', F3: 'limited', F4: 2, F6: 'two', F7: 'once', F8: '3', F9: 'aware', F10: 'yes',
-  G1: 'occasional', G2: 'some_difficulty', G3: 'partly', G4: 'well', G5: ['none'],
-  H1: 'daily', H2: '4', H3: '5', H4: '4', H5: 'in_village', H6: 'regular', H7: '3' };
+  G1: 'occasional', G2: 'some_difficulty', G3: 'partly', G4: 'well', G5: ['none'], G6: 'most',
+  H8: '5', H3: '5', H4: '4', H5: 'in_village', H6: 'regular', H7: '3' };
 
 before(async () => {
   process.env.SEED_DEMO = 'false';
@@ -62,7 +67,7 @@ test('the official village list is in the database, per district', async () => {
 });
 
 test('staff registration waits for approval', async () => {
-  const r = await call('POST', '/api/auth/register', undefined, { name: 'New Person', email: 'new@t.org', password: 'Secret123', kind: 'staff', acceptPrivacy: true });
+  const r = await register('9000000001', { name: 'New Person', email: 'new@t.org', password: 'Secret123', kind: 'staff', acceptPrivacy: true });
   assert.equal(r.status, 200);
   assert.equal((await call('POST', '/api/auth/login', undefined, { email: 'new@t.org', password: 'Secret123' })).status, 403);
   const users = (await call('GET', '/api/users', 'admin')).body.rows;
@@ -70,7 +75,7 @@ test('staff registration waits for approval', async () => {
   assert.equal(users.find((u: any) => u.email === 'new@t.org').status, 'pending');
   await call('PATCH', `/api/users/${id}`, 'admin', { status: 'active' });
   assert.equal((await call('POST', '/api/auth/login', undefined, { email: 'new@t.org', password: 'Secret123' })).status, 200);
-  assert.equal((await call('POST', '/api/auth/register', undefined, { name: 'X', email: 'new@t.org', password: 'Secret123', acceptPrivacy: true })).status, 409);
+  assert.equal((await register('9000000002', { name: 'X', email: 'new@t.org', password: 'Secret123', acceptPrivacy: true })).status, 409);
   assert.equal((await call('POST', '/api/auth/register', undefined, { name: 'X', email: 'weak@t.org', password: 'short', acceptPrivacy: true })).status, 400);
 });
 
@@ -165,13 +170,13 @@ test('an account can be deleted by its owner', async () => {
 
 /* ---------------------------------------------------------- household members */
 test('household members sign in at once; staff registrations wait for approval', async () => {
-  const hh = await call('POST', '/api/auth/register', undefined, { name: 'Tashi Angmo', email: 'tashi@t.org', password: 'Julley123', kind: 'household', acceptPrivacy: true });
+  const hh = await register('9000000003', { name: 'Tashi Angmo', email: 'tashi@t.org', password: 'Julley123', kind: 'household', acceptPrivacy: true });
   assert.equal(hh.body.active, true);
   const login = await call('POST', '/api/auth/login', undefined, { email: 'tashi@t.org', password: 'Julley123' });
   assert.equal(login.status, 200);
   assert.equal(login.body.user.role, 'respondent');
   tokens.household = login.body.token;
-  const staff = await call('POST', '/api/auth/register', undefined, { name: 'Staff Person', email: 'staff@t.org', password: 'Julley123', kind: 'staff', acceptPrivacy: true });
+  const staff = await register('9000000004', { name: 'Staff Person', email: 'staff@t.org', password: 'Julley123', kind: 'staff', acceptPrivacy: true });
   assert.equal(staff.body.active, false);
   assert.equal((await call('POST', '/api/auth/login', undefined, { email: 'staff@t.org', password: 'Julley123' })).status, 403);
 });
@@ -258,7 +263,7 @@ test('admins can delete a user; the person is erased but their surveys stay', as
   assert.equal((await call('POST', '/api/auth/login', undefined, { email: 'c@t.org', password: 'Passw0rd!' })).status, 401);
   assert.equal((await call('GET', '/api/dashboard', 'admin')).body.headline.surveys, surveysBefore);   // surveys stay
   // the email is free to register again
-  assert.equal((await call('POST', '/api/auth/register', undefined, { name: 'Back Again', email: 'c@t.org', password: 'Passw0rd1', kind: 'staff', acceptPrivacy: true })).status, 200);
+  assert.equal((await register('9000000005', { name: 'Back Again', email: 'c@t.org', password: 'Passw0rd1', kind: 'staff', acceptPrivacy: true })).status, 200);
   const audit = (await call('GET', '/api/audit', 'admin')).body.rows;
   assert.equal(audit[audit.findIndex((a: any) => a.action === 'delete_user')].entity_id, String(collector.id));
 });
@@ -358,8 +363,27 @@ test('staff who register with a phone still wait for approval', async () => {
   assert.equal(later.status, 403);
 });
 
+test('email registration needs the phone confirmed with a code', async () => {
+  const body = { name: 'Dorjey', email: 'dorjey@t.org', password: 'Julley123', kind: 'household', acceptPrivacy: true };
+  assert.equal((await call('POST', '/api/auth/register', undefined, body)).status, 400);                                // no phone
+  assert.equal((await call('POST', '/api/auth/register', undefined, { ...body, phone: '9000000010' })).status, 400);    // no code sent
+  const sent = await sendCode({ phone: '9000000010', purpose: 'register' });
+  assert.equal(sent.sentTo, '+91 ••••• 00010');
+  const wrong = sent.devCode === '000000' ? '111111' : '000000';
+  assert.equal((await call('POST', '/api/auth/register', undefined, { ...body, phone: '9000000010', code: wrong })).status, 400);
+  assert.equal((await call('POST', '/api/auth/login', undefined, { email: 'dorjey@t.org', password: 'Julley123' })).status, 401);  // not created
+  // a sign-in code does not confirm a registration
+  const signin = await sendCode({ phone: '9000000010', purpose: 'signin' });
+  assert.equal((await call('POST', '/api/auth/register', undefined, { ...body, phone: '9000000010', code: signin.devCode })).status, 400);
+  const ok = await call('POST', '/api/auth/register', undefined, { ...body, phone: '9000000010', code: sent.devCode });
+  assert.equal(ok.status, 200);
+  assert.equal((await call('POST', '/api/auth/login', undefined, { email: '9000000010', password: 'Julley123' })).status, 200);
+  // a number already on an account gets no registration code
+  assert.equal((await call('POST', '/api/auth/otp/send', undefined, { phone: '9000000010', purpose: 'register' })).status, 409);
+});
+
 test('forgot password: a code to the phone on the account, then a new password', async () => {
-  await call('POST', '/api/auth/register', undefined, { name: 'Forgetful', email: 'forget@t.org', phone: '9811122233', password: 'OldPass123', kind: 'household', acceptPrivacy: true });
+  await register('9811122233', { name: 'Forgetful', email: 'forget@t.org', password: 'OldPass123', kind: 'household', acceptPrivacy: true });
   const t = (await call('POST', '/api/auth/login', undefined, { email: 'forget@t.org', password: 'OldPass123' })).body.token;
   const r = await sendCode({ identifier: 'forget@t.org', purpose: 'reset' });
   assert.equal(r.sentTo, '+91 ••••• 22233');
@@ -415,7 +439,7 @@ test('too many sign-in attempts from one address are refused for a while', async
 
 /* --------------------------------------------------------- alerts, duplicates, rounds */
 test('alerts: approvals for admins, reviews for supervisors, sent-back surveys for the person who sent them', async () => {
-  await call('POST', '/api/auth/register', undefined, { name: 'Waiting Staff', email: 'wait@t.org', password: 'Passw0rd1', kind: 'staff', acceptPrivacy: true });
+  await register('9000000006', { name: 'Waiting Staff', email: 'wait@t.org', password: 'Passw0rd1', kind: 'staff', acceptPrivacy: true });
   const admin = (await call('GET', '/api/alerts', 'admin2')).body;
   assert.ok(admin.pendingUsers >= 1);
   const sup = (await call('GET', '/api/alerts', 'supervisor')).body;

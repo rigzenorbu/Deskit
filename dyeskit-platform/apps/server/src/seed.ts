@@ -8,7 +8,7 @@
  */
 
 import {
-  SECTIONS, QUESTIONNAIRE_VERSION, DIMENSIONS, type Item, type Answers,
+  SECTIONS, QUESTIONNAIRE_VERSION, DIMENSIONS, familyMembers, type Item, type Answers,
 } from '@dyeskit/core';
 import { audit, type Db } from './db';
 import { hashPassword } from './auth';
@@ -68,12 +68,11 @@ function demoAnswers(district: string, profile: number, rnd: () => number): Answ
   const lean: Record<string, number> = Object.fromEntries(DIMENSIONS.map(d => [d.id, (rnd() - 0.5) * 0.25]));
   lean.spi += 0.15;
 
+  let bmiLean = 0.5;
   for (const s of SECTIONS) for (const item of s.items) {
     const q = near(profile + (item.dim ? lean[item.dim] : 0));
     if (item.bmi) {
-      if (rnd() < 0.1) continue;   // no measuring kit that day
-      const h = Math.round(150 + rnd() * 25);
-      a[item.id] = { height_cm: h, weight_kg: Math.round((18 + q * 5 + (rnd() - 0.5) * 6) * (h / 100) ** 2) };
+      bmiLean = q;                 // measured below, once the family roster is known
     } else if (item.countPoints) {
       const idx = Math.min(item.countPoints.length - 1, Math.max(0, Math.round(q * (item.countPoints.length - 1) + (rnd() - 0.5))));
       const reversed = item.countPoints[0] > item.countPoints[item.countPoints.length - 1];
@@ -88,10 +87,32 @@ function demoAnswers(district: string, profile: number, rnd: () => number): Answ
     }
   }
 
+  a.F11 = rnd() < 0.35 ? 'yes' : 'no';
+  a.G7 = ['hindi', 'urdu', 'english', 'foreign'].filter((_, i) => rnd() < [0.85, 0.3, 0.55, 0.08][i]);
+  if (!(a.G7 as string[]).length) a.G7 = ['none'];
   a.A4 = Math.floor(5 + rnd() * 50);
   a.A5 = Math.floor(20 + rnd() * 55);
   a.A6 = rnd() < 0.48 ? 'female' : 'male';
-  a.A7 = Math.floor(2 + rnd() * 7);
+  // the family: 2–8 people, two of them adults of the respondent's generation
+  const size = Math.floor(2 + rnd() * 7), male = Math.max(1, Math.round(size * (0.3 + rnd() * 0.4))), female = Math.max(1, size - male);
+  const ageOf = (i: number) => (i === 0 ? Math.floor(25 + rnd() * 50) : Math.floor(1 + rnd() * 75));
+  a.A7 = { male, female, ages: { male: Array.from({ length: male }, (_, i) => ageOf(i)), female: Array.from({ length: female }, (_, i) => ageOf(i)) } };
+  const working = Math.floor(rnd() * Math.min(4, male + female));
+  const permanent = Math.floor(rnd() * (working + 1));
+  a.A14 = { permanent, temporary: working - permanent };
+  // most families agree to be measured, and a few members decline
+  a.B1s = rnd() < 0.85 ? 'yes' : 'no';
+  if (a.B1s === 'yes') {
+    const measured: Record<string, { height_cm: number; weight_kg: number }> = {};
+    for (const m of familyMembers(a)) {
+      if (rnd() < 0.15) continue;
+      const child = m.age !== null && m.age < 18;
+      const h = child ? Math.round(80 + (m.age ?? 10) * 5.5) : Math.round((m.sex === 'male' ? 158 : 150) + rnd() * 20);
+      const bmi = child ? 15 + rnd() * 4 : 18 + bmiLean * 5 + (rnd() - 0.5) * 6;
+      measured[m.key] = { height_cm: h, weight_kg: Math.round(bmi * (h / 100) ** 2) };
+    }
+    a.B1 = measured;
+  }
   a.A8 = rnd() < 0.45 ? Math.floor(1 + rnd() * 2) : 0;
   a.A9 = ['nuclear', 'joint', 'extended'][Math.floor(rnd() * 3)];
   a.A10 = MUSLIM_MAJORITY.has(district) ? (rnd() < 0.86 ? 'muslim' : 'buddhist') : (rnd() < 0.85 ? 'buddhist' : rnd() < 0.7 ? 'muslim' : 'hindu');
@@ -100,8 +121,6 @@ function demoAnswers(district: string, profile: number, rnd: () => number): Answ
   a.B9 = ['piped', 'yura', 'chumik', 'stream'].filter(() => rnd() < 0.4);
   if (!(a.B9 as string[]).length) a.B9 = ['piped'];
   a.C7 = rnd() < 0.6 ? ['none'] : ['tobacco', 'alcohol', 'chhang'].filter(() => rnd() < 0.4);
-  a.D8 = Number(a.A8) > 0 ? 'yes' : 'no';
-  if (a.D8 === 'yes') a.D8a = a.A8;
   a.E2 = rnd() < 0.6 ? 'large_dec' : rnd() < 0.7 ? 'some_dec' : 'no_change';
   a.E7 = String(Math.min(5, Math.max(1, Math.round(3.5 + (rnd() - 0.5) * 2))));
   a.F5 = ['farming', 'livestock', 'tourism', 'homestay', 'salary', 'daily_wage'].filter(() => rnd() < 0.35);

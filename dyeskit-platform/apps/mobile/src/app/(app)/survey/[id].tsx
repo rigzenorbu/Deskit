@@ -5,7 +5,7 @@ import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown, FadeInRight, ZoomIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { DIMENSIONS, ITEMS, MIN_FILLED_TO_FINISH, PROGRESS_MILESTONES, SECTIONS, isShown, milestoneFor, scoreHousehold, surveyProgress, type Answers, type Section } from '@dyeskit/core';
+import { DIMENSIONS, ITEMS, MIN_FILLED_TO_FINISH, PROGRESS_MILESTONES, SECTIONS, isShown, milestoneFor, questionNo, scoreHousehold, surveyProgress, type Answers, type Section } from '@dyeskit/core';
 import { DIM_COLORS, FONT, PRAYER_FLAGS, RADIUS, SPACE, bandColor, useTheme } from '@/theme';
 import { useMeta } from '@/lib/auth';
 import { finishSurvey, getSurvey, updateSurvey, useOutbox } from '@/lib/outbox';
@@ -149,14 +149,14 @@ export default function SurveyScreen() {
                   <Card style={{ marginBottom: SPACE.md, borderLeftWidth: 4, borderLeftColor: answered ? accent : c.line }}>
                     <Row style={{ alignItems: 'flex-start', marginBottom: 12 }}>
                       <View style={{ minWidth: 34, height: 24, borderRadius: 8, backgroundColor: answered ? accent : c.surface2, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 }}>
-                        <Text v="caption" color={answered ? '#fff' : c.ink2} style={{ fontFamily: FONT.bold }}>{it.id}</Text>
+                        <Text v="caption" color={answered ? '#fff' : c.ink2} style={{ fontFamily: FONT.bold }}>{questionNo(it.id)}</Text>
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text v="h3">{it.q}{it.required ? <Text v="h3" color={c.danger}> *</Text> : null}</Text>
                         {it.help ? <Text v="small" muted style={{ marginTop: 4 }}>{it.help}</Text> : null}
                       </View>
                     </Row>
-                    <QuestionInput item={it} value={answers[it.id]} onChange={set(it.id)} accent={accent} villageName={village.name} />
+                    <QuestionInput item={it} value={answers[it.id]} onChange={set(it.id)} accent={accent} villageName={village.name} answers={answers} />
                   </Card>
                 </Animated.View>
               );

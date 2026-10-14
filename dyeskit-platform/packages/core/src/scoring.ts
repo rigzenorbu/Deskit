@@ -17,11 +17,13 @@
  */
 
 import {
-  BANDS, BMI_OTHER_POINTS, BMI_TABLE, DIMENSIONS, DIM_ITEMS, ITEMS,
+  BANDS, BMI_MIN_AGE, BMI_OTHER_POINTS, BMI_TABLE, DIMENSIONS, DIM_ITEMS, ITEMS,
   type Band, type DimensionId, type Item,
 } from './questionnaire';
+import { measuresOf } from './family';
 
-export const SCORING_VERSION = 'v3-fixed-points';
+/** v3.1: BMI is the average over the family's measured adults. */
+export const SCORING_VERSION = 'v3.1-fixed-points';
 
 export const NEUTRAL_POINTS = 50;
 export const DIMENSION_MIN_SHARE = 0.5;
@@ -96,9 +98,16 @@ export function scoreQuestion(item: Item, answers: Answers): Omit<QuestionScore,
   const v = answers[item.id];
 
   if (item.bmi) {
-    const m = (v || {}) as { height_cm?: unknown; weight_kg?: unknown };
-    const r = bmiPoints(m.height_cm, m.weight_kg);
-    return r ? { points: r.points, status: 'ok', detail: `BMI ${r.bmi}` } : null;
+    // optional: the family may decline; children are not scored on the adult cut-offs
+    if (answers.B1s === 'no') return null;
+    const adults = measuresOf(answers)
+      .filter(m => m.age === null || m.age >= BMI_MIN_AGE)
+      .map(m => bmiPoints(m.height_cm, m.weight_kg))
+      .filter((r): r is { points: number; bmi: number } => r !== null);
+    if (!adults.length) return null;
+    if (adults.length === 1) return { points: adults[0].points, status: 'ok', detail: `BMI ${adults[0].bmi}` };
+    const points = Math.round(adults.reduce((s, r) => s + r.points, 0) / adults.length);
+    return { points, status: 'ok', detail: `${adults.length} adults measured — BMI ${adults.map(r => r.bmi).join(', ')}` };
   }
   if (isBlank(v)) return null;
   if (isNeutral(item, v)) return { points: NEUTRAL_POINTS, status: 'neutral', detail: 'Don’t know / prefer not to answer' };

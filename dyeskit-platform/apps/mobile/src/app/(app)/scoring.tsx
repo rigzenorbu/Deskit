@@ -4,6 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import {
   BANDS, BMI_OTHER_POINTS, BMI_TABLE, CRITICAL_BELOW, DIMENSIONS, DIM_ITEMS, DIMENSION_MIN_QUESTIONS, FLAG_BELOW,
   HOUSEHOLD_MIN_DIMENSIONS, NEUTRAL_POINTS, VILLAGE_MIN_HOUSEHOLDS, VILLAGE_MIN_SHARE, type Item,
+  questionNo,
 } from '@dyeskit/core';
 import { BAND_COLORS, DIM_COLORS, DIM_ICONS, FONT, RADIUS, SPACE, scoreColor, useTheme } from '@/theme';
 import { Card, Rise, Row, Screen, SectionTitle, Text, tap } from '@/components/ui';
@@ -106,7 +107,7 @@ function QuestionPoints({ item, color }: { item: Item; color: string }) {
   return (
     <View style={{ marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: c.line }}>
       <Row gap={8} style={{ alignItems: 'flex-start' }}>
-        <Text v="caption" color={color} style={{ fontFamily: FONT.bold, width: 30 }}>{item.id}</Text>
+        <Text v="caption" color={color} style={{ fontFamily: FONT.bold, width: 30 }}>{questionNo(item.id)}</Text>
         <View style={{ flex: 1 }}>
           <Text v="small" style={{ fontFamily: FONT.semibold }}>{item.indicator}</Text>
           <Text v="caption" muted>{item.q}</Text>

@@ -4,15 +4,17 @@
 import React from 'react';
 import { Pressable, TextInput, View, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { bmiPoints, type Item } from '@dyeskit/core';
+import { BMI_MIN_AGE, FAMILY_MAX_PER_SEX, bmiPoints, familyMembers, familyOf, type Answers, type Family, type Item, type Sex } from '@dyeskit/core';
 import { FONT, RADIUS, scoreColor, useTheme } from '@/theme';
 import { Row, Text, tap } from './ui';
 
 type Value = unknown;
 const EXCLUSIVE = ['none', 'PNA', 'DK'];
 
-export function QuestionInput({ item, value, onChange, accent, villageName }: {
+export function QuestionInput({ item, value, onChange, accent, villageName, answers = {} }: {
   item: Item; value: Value; onChange: (v: Value) => void; accent: string; villageName?: string;
+  /** the whole survey so far: height and weight follow the family roster (A7) */
+  answers?: Answers;
 }) {
   const { c } = useTheme();
 
@@ -149,6 +151,94 @@ export function QuestionInput({ item, value, onChange, accent, villageName }: {
     );
   }
 
+  if (item.type === 'family') {
+    const f: Family = familyOf(value) ?? { male: 0, female: 0, ages: { male: [], female: [] } };
+    const emit = (next: Family) => onChange(next.male + next.female ? next : undefined);
+    const setCount = (sex: Sex, n: number) => {
+      const ages = { ...f.ages, [sex]: Array.from({ length: n }, (_, i) => f.ages[sex][i] ?? null) };
+      emit({ ...f, [sex]: n, ages });
+    };
+    const setAge = (sex: Sex, i: number, age: number | null) =>
+      emit({ ...f, ages: { ...f.ages, [sex]: f.ages[sex].map((a, j) => (j === i ? (age === null ? null : Math.min(110, age)) : a)) } });
+    const total = f.male + f.female;
+    return (
+      <View style={{ gap: 12 }}>
+        <Stepper label="Males" icon="user" value={f.male} max={FAMILY_MAX_PER_SEX} onChange={n => setCount('male', n)} />
+        <Stepper label="Females" icon="user" value={f.female} max={FAMILY_MAX_PER_SEX} onChange={n => setCount('female', n)} />
+        {total ? (
+          <View style={{ backgroundColor: c.surface2, borderRadius: RADIUS.md, padding: 12, gap: 10 }}>
+            <Text v="small" style={{ fontFamily: FONT.semibold }}>{total} {total === 1 ? 'person' : 'people'} — age of each (years)</Text>
+            {(['male', 'female'] as const).map(sex => f[sex] ? (
+              <Row key={sex} wrap gap={8}>
+                {f.ages[sex].map((age, i) => (
+                  <View key={i} style={{ width: 104 }}>
+                    <Text v="caption" faint style={{ marginBottom: 4 }}>{sex === 'male' ? 'Male' : 'Female'} {i + 1}</Text>
+                    <NumberField value={age} unit="yrs" onChange={x => setAge(sex, i, x)} />
+                  </View>
+                ))}
+              </Row>
+            ) : null)}
+          </View>
+        ) : null}
+      </View>
+    );
+  }
+
+  if (item.type === 'counts') {
+    const cur = (value ?? {}) as Record<string, number | undefined>;
+    return (
+      <View style={{ gap: 12 }}>
+        {item.fields!.map(f => (
+          <Stepper key={f.k} label={f.label} value={cur[f.k] ?? 0} min={f.min} max={f.max} onChange={n => {
+            const next = { ...cur, [f.k]: n };
+            onChange(Object.values(next).some(v => v) ? next : undefined);
+          }} />
+        ))}
+      </View>
+    );
+  }
+
+  if (item.type === 'measure' && !(value && typeof value === 'object' && ('height_cm' in value || 'weight_kg' in value))) {
+    // one height and weight per family member on the roster (a v3.0 survey holds one person — below)
+    const members = familyMembers(answers);
+    const cur = (value ?? {}) as Record<string, Record<string, number | undefined>>;
+    if (!members.length) {
+      return <Text v="small" muted>Add the family members in A7 first — each one is listed here.</Text>;
+    }
+    const setField = (key: string, k: string, x: number | null) => {
+      const person = { ...cur[key], [k]: x ?? undefined };
+      const next = { ...cur, [key]: person };
+      if (Object.values(person).every(v => v === undefined)) delete next[key];
+      onChange(Object.keys(next).length ? next : undefined);
+    };
+    return (
+      <View style={{ gap: 12 }}>
+        {members.map(m => {
+          const p = cur[m.key] ?? {};
+          const bmi = bmiPoints(p.height_cm, p.weight_kg);
+          const child = m.age !== null && m.age < BMI_MIN_AGE;
+          return (
+            <View key={m.key} style={{ borderWidth: 1, borderColor: c.line, borderRadius: RADIUS.md, padding: 10 }}>
+              <Text v="small" style={{ fontFamily: FONT.semibold, marginBottom: 6 }}>{m.label}{m.age !== null ? ` · ${m.age} yrs` : ''}</Text>
+              <Row gap={10}>
+                {item.fields!.map(f => (
+                  <View key={f.k} style={{ flex: 1 }}>
+                    <NumberField value={p[f.k] ?? null} unit={f.unit} onChange={x => setField(m.key, f.k, x)} />
+                  </View>
+                ))}
+              </Row>
+              {bmi ? (
+                <Text v="caption" color={child ? c.ink3 : scoreColor(bmi.points)} style={{ marginTop: 6, fontFamily: FONT.semibold }}>
+                  BMI {bmi.bmi}{child ? ' — child, not scored' : ` → ${bmi.points} points`}
+                </Text>
+              ) : null}
+            </View>
+          );
+        })}
+      </View>
+    );
+  }
+
   if (item.type === 'measure') {
     const cur = (value ?? {}) as Record<string, number | undefined>;
     const bmi = bmiPoints(cur.height_cm, cur.weight_kg);
@@ -183,6 +273,29 @@ export function QuestionInput({ item, value, onChange, accent, villageName }: {
   );
 }
 
+/** A labelled whole number with − and + buttons. */
+function Stepper({ label, value, onChange, min = 0, max = 99, icon }: {
+  label: string; value: number; onChange: (n: number) => void; min?: number; max?: number; icon?: 'user';
+}) {
+  const { c } = useTheme();
+  const clamp = (x: number) => Math.min(max, Math.max(min, x));
+  return (
+    <Row gap={10}>
+      <Row gap={6} style={{ flex: 1 }}>
+        {icon ? <Feather name={icon} size={16} color={c.ink2} /> : null}
+        <Text v="body" style={{ fontFamily: FONT.semibold }}>{label}</Text>
+      </Row>
+      <StepButton icon="minus" onPress={() => onChange(clamp(value - 1))} />
+      {/* a fixed-width box: the number always sits centred between − and + */}
+      <TextInput value={String(value)} keyboardType="number-pad" selectTextOnFocus maxLength={3}
+        onChangeText={t => { const d = t.replace(/\D/g, ''); onChange(clamp(d === '' ? 0 : Number(d))); }}
+        style={{ width: 64, height: 52, borderWidth: 1.5, borderColor: c.line, borderRadius: RADIUS.md, backgroundColor: c.surface, padding: 0,
+          fontFamily: FONT.bold, fontSize: 18, color: c.ink, textAlign: 'center', ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as object : {}) }} />
+      <StepButton icon="plus" onPress={() => onChange(clamp(value + 1))} />
+    </Row>
+  );
+}
+
 function StepButton({ icon, onPress }: { icon: 'minus' | 'plus'; onPress: () => void }) {
   const { c } = useTheme();
   return (
@@ -195,10 +308,10 @@ function StepButton({ icon, onPress }: { icon: 'minus' | 'plus'; onPress: () => 
 function NumberField({ value, onChange, unit }: { value: number | null; onChange: (n: number | null) => void; unit?: string }) {
   const { c } = useTheme();
   return (
-    <Row style={{ flex: 1, height: 52, borderWidth: 1.5, borderColor: c.line, borderRadius: RADIUS.md, paddingHorizontal: 14, backgroundColor: c.surface }}>
+    <Row style={{ flexGrow: 1, flexShrink: 1, flexBasis: 'auto', height: 52, borderWidth: 1.5, borderColor: c.line, borderRadius: RADIUS.md, paddingHorizontal: 10, backgroundColor: c.surface }}>
       <TextInput value={value === null || value === undefined || Number.isNaN(value) ? '' : String(value)} keyboardType="numeric" placeholder="—" placeholderTextColor={c.ink3}
         onChangeText={t => { const x = t.replace(/[^\d.]/g, ''); onChange(x === '' ? null : Number(x)); }}
-        style={{ flex: 1, fontFamily: FONT.bold, fontSize: 18, color: c.ink, textAlign: 'center', height: '100%', ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as object : {}) }} />
+        style={{ flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0, width: 0, padding: 0, fontFamily: FONT.bold, fontSize: 18, color: c.ink, textAlign: 'center', height: '100%', ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as object : {}) }} />
       {unit ? <Text v="small" faint>{unit}</Text> : null}
     </Row>
   );

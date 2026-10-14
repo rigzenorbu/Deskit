@@ -50,7 +50,6 @@ export const SIGNALS: Signal[] = [
 
   { id: 'no_institution', dim: 'soc', label: 'No functioning village institution', test: a => Array.isArray(a.D6) && countChoices(a.D6) === 0, action: 'Nothing to build community action on — usually the first thing to rebuild.' },
   { id: 'exclusion', dim: 'soc', label: 'Women or marginalised groups excluded', test: a => a.D4 === 'exclusion', action: 'Check who actually attends meetings, not only who is invited.' },
-  { id: 'youth_left', dim: 'soc', label: 'Young people left for work or study', test: a => a.D8 === 'yes', action: 'Not automatically bad — ask whether it reads as opportunity or loss.' },
 
   { id: 'digital_excluded', dim: 'int', label: 'Cannot use a phone or internet for information', test: a => a.G2 === 'no', action: 'Limits every digital service, including this one reaching them.' },
   { id: 'education_barriers', dim: 'int', label: 'Two or more barriers to education', test: a => countChoices(a.G5) >= 2, action: 'Distance, cost, winter closure and teacher absence need different responses.' },

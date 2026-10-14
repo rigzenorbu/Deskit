@@ -43,7 +43,8 @@ dyeskit-platform/
   surveys in a village can be approved in one tap. The checks only flag; a person decides
   (rules in `packages/core/src/quality.ts`).
 - **Sign in with a phone number.** A 6-digit code by text message — no password or email needed;
-  a new number creates the account. Email and password still work, and **Forgot password** sends a
+  a new number creates the account. Email and password still work — registering that way also
+  confirms the mobile number with a texted code before the account is made — and **Forgot password** sends a
   code to the phone on the account. Limits stop password guessing and mass registration.
   Self-reported surveys count in dashboards only after a supervisor approves them.
 - **Privacy policy** in the app and public at `/privacy` (needed for the app stores). **Before

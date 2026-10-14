@@ -102,8 +102,13 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
     return startSession(u);
   });
 
+  /**
+   * Register with email and password. While text messages can be sent, the phone number is
+   * required and must be confirmed with the code sent to it (purpose "register") — so every
+   * new account belongs to a real, reachable person.
+   */
   app.post('/api/auth/register', limit(5, 60), async (req, reply) => {
-    const b = (req.body ?? {}) as { name?: string; email?: string; phone?: string; password?: string; kind?: string; acceptPrivacy?: boolean };
+    const b = (req.body ?? {}) as { name?: string; email?: string; phone?: string; code?: string; password?: string; kind?: string; acceptPrivacy?: boolean };
     const name = String(b.name ?? '').trim(), email = String(b.email ?? '').trim().toLowerCase(), password = String(b.password ?? '');
     // household members can sign in at once; staff wait for an admin
     const household = b.kind !== 'staff';
@@ -113,13 +118,16 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
     if (b.acceptPrivacy !== true) return reply.code(400).send({ error: 'Please read and accept the privacy policy.' });
     const phone = b.phone?.trim() ? normalizePhone(b.phone) : null;
     if (b.phone?.trim() && !phone) return reply.code(400).send({ error: 'Please enter a valid phone number, e.g. 98765 43210.' });
+    const verify = phoneSignInAvailable();
+    if (verify && !phone) return reply.code(400).send({ error: 'Please enter your mobile number. We text a code to confirm it.' });
     const { rows } = await db.query('SELECT 1 FROM users WHERE lower(email) = $1', [email]);
     if (rows.length) return reply.code(409).send({ error: 'That email is already registered.' });
     if (phone && await phoneTaken(phone)) return reply.code(409).send({ error: 'That phone number is already registered.' });
+    if (verify) await checkCode(db, phone!, 'register', String(b.code ?? ''));
     const role = household ? 'respondent' : 'collector';
     await db.query(`INSERT INTO users (name, email, phone, role, status, password_hash, privacy_accepted_at) VALUES ($1,$2,$3,$4,$5,$6, now())`,
       [name, email, phone, role, household ? 'active' : 'pending', hashPassword(password)]);
-    await audit(db, null, 'register', 'user', email, { role });
+    await audit(db, null, 'register', 'user', email, { role, phoneVerified: verify });
     return household
       ? { ok: true, active: true, message: 'Your account is ready. Sign in to fill in your household’s details.' }
       : { ok: true, active: false, message: 'Registration received. An admin will review and approve your account.' };
@@ -130,6 +138,7 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
    * purpose "signin": a code to the number typed (works for new and existing accounts).
    * purpose "reset": the number may be typed, or an email given — the code goes to the phone
    * number on that account. The answer is the same whether or not an account matches.
+   * purpose "register": confirms the number typed on the registration form; it must be free.
    */
   app.post('/api/auth/otp/send', limit(5, 15), async (req, reply) => {
     if (!phoneSignInAvailable()) return reply.code(503).send({ error: 'Signing in with a phone number is not available yet.' });
@@ -144,6 +153,12 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
     }
     const phone = normalizePhone(b.phone);
     if (!phone) return reply.code(400).send({ error: 'Please enter a valid phone number, e.g. 98765 43210.' });
+    if (b.purpose === 'register') {
+      if (await phoneTaken(phone)) return reply.code(409).send({ error: 'That phone number is already registered. Please sign in.' });
+      const code = await createCode(db, phone, 'register');
+      await sendSms(phone, `Your DYESKIT code to confirm your phone number is ${code}. It expires in ${CODE_MINUTES} minutes. Do not share it.`);
+      return { ok: true, sentTo: maskPhone(phone), ...(revealCodes() ? { devCode: code } : {}) };
+    }
     const code = await createCode(db, phone, 'signin');
     await sendSms(phone, `Your DYESKIT sign-in code is ${code}. It expires in ${CODE_MINUTES} minutes. Do not share it.`);
     return { ok: true, sentTo: maskPhone(phone), ...(revealCodes() ? { devCode: code } : {}) };

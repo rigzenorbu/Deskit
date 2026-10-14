@@ -7,9 +7,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  BANDS, BMI_OTHER_POINTS, BMI_TABLE, CRITICAL_BELOW, DIMENSIONS, DIM_ITEMS, DIMENSION_MIN_QUESTIONS, DIMENSION_MIN_SHARE,
+  BANDS, BMI_MIN_AGE, BMI_OTHER_POINTS, BMI_TABLE, CRITICAL_BELOW, DIMENSIONS, DIM_ITEMS, DIMENSION_MIN_QUESTIONS, DIMENSION_MIN_SHARE,
   FLAG_BELOW, HOUSEHOLD_MIN_DIMENSIONS, NEUTRAL_POINTS, QUESTIONNAIRE_VERSION, SCORING_VERSION, SEVERITY, SIGNALS,
   VILLAGE_MIN_HOUSEHOLDS, VILLAGE_MIN_SHARE, type Item,
+  questionNo,
 } from '../src/index';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -21,7 +22,11 @@ const pointsTable = (item: Item) => {
     : item.countPoints
       ? item.countPoints.map((p, n) => [`${n}${n === item.countPoints!.length - 1 ? ' or more' : ''} ${item.counts ?? ''}`.trim(), p] as [string, number])
       : (item.options ?? []).filter(o => typeof o.points === 'number' || o.neutral).map(o => [o.label, o.neutral ? NEUTRAL_POINTS : o.points!] as [string, number]);
-  return rows.map(([l, p]) => `| ${l} | ${p} |`).join('\n');
+  const table = rows.map(([l, p]) => `| ${l} | ${p} |`).join('\n');
+  return item.bmi
+    ? `${table}\n\nOptional — asked only if the family agrees. Each adult (${BMI_MIN_AGE} and over) measured gets points from this table; `
+      + 'the question scores the average of them. Children are recorded but not scored: these are adult cut-offs.'
+    : table;
 };
 
 const md = `# How DYESKIT scores well-being
@@ -100,7 +105,7 @@ ${DIMENSIONS.map(d => `### ${d.name}
 
 *${d.about}.* ${DIM_ITEMS[d.id].length} questions.
 
-${DIM_ITEMS[d.id].map(item => `**${item.id} · ${item.indicator}** — ${item.q}
+${DIM_ITEMS[d.id].map(item => `**${questionNo(item.id)} · ${item.indicator}** — ${item.q}
 
 | Answer | Points |
 |---|---|

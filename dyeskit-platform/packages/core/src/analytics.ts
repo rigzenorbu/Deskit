@@ -8,6 +8,7 @@ import { DISTRICTS } from './districts';
 import { DIMENSIONS, ITEMS, SCORED_ITEMS, type DimensionId } from './questionnaire';
 import { round1, scoreGroup, type Answers, type GroupScore, type HouseholdScore } from './scoring';
 import { buildInsights, signalShares, severityFor } from './insights';
+import { householdSize, measuresOf } from './family';
 
 export interface SurveyRow {
   id: string;
@@ -122,7 +123,7 @@ export function computeDashboard(rows: SurveyRow[], villagesInView: VillageInfo[
     family: breakdown(scored, r => (r.answers.A9 as string) ?? null, k => optionLabel('A9', k), ['nuclear', 'joint', 'extended']),
     housing: breakdown(scored, r => (r.answers.A11 as string) ?? null, k => optionLabel('A11', k)),
     size: breakdown(scored, r => {
-      const n = Number(r.answers.A7);
+      const n = householdSize(r.answers) ?? NaN;
       return isFinite(n) && n > 0 ? HOUSEHOLD_SIZES.find(s => n >= s.min && n <= s.max)?.id ?? null : null;
     }, k => HOUSEHOLD_SIZES.find(s => s.id === k)!.label, HOUSEHOLD_SIZES.map(s => s.id)),
   };
@@ -169,7 +170,7 @@ export function computeDashboard(rows: SurveyRow[], villagesInView: VillageInfo[
     byStatus: ['draft', 'submitted', 'approved', 'rejected'].map(s => ({ status: s, count: rows.filter(r => r.status === s).length })),
     notEnoughAnswers: rows.filter(r => !r.score || r.score.score === null).length,
     shortInterviews: rows.filter(r => r.durationMin !== null && r.durationMin < 10).length,
-    noBmi: rows.filter(r => !(r.answers.B1 as { height_cm?: number } | undefined)?.height_cm).length,
+    noBmi: rows.filter(r => !measuresOf(r.answers).some(m => m.height_cm && m.weight_kg)).length,
   };
 
   /* ---- headline numbers ---- */

@@ -1,6 +1,6 @@
 # How DYESKIT scores well-being
 
-Scoring version `v3-fixed-points` · questionnaire `v3.0`
+Scoring version `v3.1-fixed-points` · questionnaire `v3.1`
 
 *This file is generated from the scoring tables in `packages/core`. Do not edit it by hand —
 change the tables and run `npm run docs:scoring`.*
@@ -80,7 +80,7 @@ Every rule that used a calculation now uses a fixed table:
 
 *Health, nutrition, sleep, sanitation and access to care.* 9 questions.
 
-**B1 · Nutrition (BMI)** — Measured height & weight
+**B1a · Nutrition (BMI)** — Height & weight of each family member
 
 | Answer | Points |
 |---|---|
@@ -91,7 +91,9 @@ Every rule that used a calculation now uses a fixed table:
 | BMI Moderately thin (16.0–16.9) | 30 |
 | BMI below 16.0, or 30.0 and above | 0 |
 
-**B2 · Chronic illness** — Diagnosed chronic illness?
+Optional — asked only if the family agrees. Each adult (18 and over) measured gets points from this table; the question scores the average of them. Children are recorded but not scored: these are adult cut-offs.
+
+**B2 · Chronic illness** — Does anyone in the family have a long-term illness diagnosed by a doctor?
 
 | Answer | Points |
 |---|---|
@@ -100,7 +102,7 @@ Every rule that used a calculation now uses a fixed table:
 | Unmanaged or severe | 0 |
 | Don't know | 50 |
 
-**B3 · Altitude symptoms** — Altitude symptoms (breathlessness, chronic headache, fatigue)?
+**B3 · Altitude symptoms** — Do family members get altitude symptoms (breathlessness, constant headache, tiredness)?
 
 | Answer | Points |
 |---|---|
@@ -108,7 +110,7 @@ Every rule that used a calculation now uses a fixed table:
 | Occasionally | 50 |
 | Frequently | 0 |
 
-**B4 · Distance to healthcare** — Nearest health facility you'd use
+**B4 · Distance to healthcare** — Nearest health facility the family would use
 
 | Answer | Points |
 |---|---|
@@ -118,7 +120,7 @@ Every rule that used a calculation now uses a fixed table:
 | 11–20 km | 50 |
 | More than 20 km | 0 |
 
-**B5 · Winter access to care** — Last year, unable to reach care because of snow, road or distance?
+**B5 · Winter access to care** — Last year, was anyone in the family unable to reach care because of snow, road or distance?
 
 | Answer | Points |
 |---|---|
@@ -126,15 +128,15 @@ Every rule that used a calculation now uses a fixed table:
 | Once | 50 |
 | More than once | 0 |
 
-**B6 · Physical activity** — Typical daily physical activity
+**B6 · Physical activity** — How physically active is the family on a normal day?
 
 | Answer | Points |
 |---|---|
-| Active work (farming, herding, labour) | 100 |
-| Moderate | 50 |
-| Sedentary | 0 |
+| Very active — farming, herding or labour | 100 |
+| Somewhat active — walking, housework | 50 |
+| Not active — mostly sitting | 0 |
 
-**B7 · Sleep** — Adequate sleep (about 7 hours) most nights?
+**B7 · Sleep** — Do family members get enough sleep (about 7 hours) most nights?
 
 | Answer | Points |
 |---|---|
@@ -143,7 +145,7 @@ Every rule that used a calculation now uses a fixed table:
 | Rarely | 33 |
 | Never | 0 |
 
-**B8 · Sanitation** — Household toilet
+**B8 · Sanitation** — Family toilet
 
 | Answer | Points |
 |---|---|
@@ -152,15 +154,15 @@ Every rule that used a calculation now uses a fixed table:
 | Toilet without proper disposal | 50 |
 | No toilet | 0 |
 
-**B11 · Self-rated health** — I am satisfied with my physical health.
+**B11 · Overall physical health** — Overall, how would you rate your family’s physical health?
 
 | Answer | Points |
 |---|---|
-| Strongly disagree | 0 |
-| Disagree | 25 |
-| Neutral | 50 |
-| Agree | 75 |
-| Strongly agree | 100 |
+| Very poor | 0 |
+| Poor | 25 |
+| Fair | 50 |
+| Good | 75 |
+| Very good | 100 |
 
 ### Financial
 
@@ -193,7 +195,7 @@ Every rule that used a calculation now uses a fixed table:
 | Limited | 50 |
 | None, or in debt | 0 |
 
-**F4 · Livelihood diversity** — Number of separate income sources
+**F5 · Livelihood diversity** — Number of separate income sources
 
 | Answer | Points |
 |---|---|
@@ -202,7 +204,7 @@ Every rule that used a calculation now uses a fixed table:
 | 2 income sources | 75 |
 | 3 or more income sources | 100 |
 
-**F6 · Income through the year** — How is the income spread over the year?
+**F7 · Income through the year** — How is the income spread over the year?
 
 | Answer | Points |
 |---|---|
@@ -211,7 +213,7 @@ Every rule that used a calculation now uses a fixed table:
 | Two seasons | 50 |
 | One season only | 25 |
 
-**F7 · Climate shocks** — Extreme-weather damage to crops, livestock or property in the last 5 years?
+**F8 · Climate shocks** — Extreme-weather damage to crops, livestock or property in the last 5 years?
 
 | Answer | Points |
 |---|---|
@@ -219,7 +221,7 @@ Every rule that used a calculation now uses a fixed table:
 | Once | 50 |
 | More than once | 0 |
 
-**F8 · Felt financial security** — I feel financially secure about my household's future.
+**F9 · Felt financial security** — I feel financially secure about my household's future.
 
 | Answer | Points |
 |---|---|
@@ -229,7 +231,7 @@ Every rule that used a calculation now uses a fixed table:
 | Agree | 75 |
 | Strongly agree | 100 |
 
-**F9 · Government schemes** — Aware of / using a government livelihood scheme?
+**F10 · Government schemes** — Aware of / using a government livelihood scheme?
 
 | Answer | Points |
 |---|---|
@@ -237,7 +239,7 @@ Every rule that used a calculation now uses a fixed table:
 | Aware, not using | 50 |
 | Not aware | 0 |
 
-**F10 · Bank account** — Does the household have a bank account?
+**F11 · Bank account** — Does the household have a bank account?
 
 | Answer | Points |
 |---|---|
@@ -246,18 +248,18 @@ Every rule that used a calculation now uses a fixed table:
 
 ### Emotional
 
-*Mood, support, stress, hope and isolation.* 6 questions.
+*Mood, support, stress, hope and isolation.* 9 questions.
 
-**C1 · Emotional state** — Overall, how do you feel emotionally?
+**C1 · Emotional state** — Overall, how is the family feeling emotionally these days?
 
 | Answer | Points |
 |---|---|
-| Fit (calm, focused) | 100 |
-| Generally stable | 50 |
-| Facing challenges | 0 |
+| Calm and settled | 100 |
+| Mostly fine | 50 |
+| Going through a hard time | 0 |
 | Prefer not to answer | 50 |
 
-**C2 · Support system** — What emotional support can you turn to?
+**C2 · Support system** — Where can family members turn for emotional support?
 
 | Answer | Points |
 |---|---|
@@ -266,26 +268,51 @@ Every rule that used a calculation now uses a fixed table:
 | 2 kinds of support ticked | 75 |
 | 3 or more kinds of support ticked | 100 |
 
-**C3 · Stress recovery** — How do you recover from stress?
+**C3 · Stress recovery** — How does the family handle stress and worries?
 
 | Answer | Points |
 |---|---|
-| Low stress, quick recovery | 100 |
-| Moderate | 50 |
-| High stress, hard to recover | 0 |
+| Little stress, and we recover quickly | 100 |
+| Some stress, we manage | 50 |
+| A lot of stress, hard to recover | 0 |
 | Prefer not to answer | 50 |
 
-**C4 · Hope** — In the last month I have felt hopeful about the future.
+**C4 · Family harmony** — How well do family members get along with each other?
 
 | Answer | Points |
 |---|---|
-| Strongly disagree | 0 |
-| Disagree | 25 |
-| Neutral | 50 |
-| Agree | 75 |
-| Strongly agree | 100 |
+| Very well — rarely any quarrels | 100 |
+| Mostly well — quarrels sometimes | 50 |
+| Often tense or quarrelling | 0 |
+| Prefer not to answer | 50 |
 
-**C5 · Life satisfaction** — Overall, how satisfied are you with life?
+**C5 · Time together** — How often does the family spend time together — meals, talking, prayers or festivals?
+
+| Answer | Points |
+|---|---|
+| Most days | 100 |
+| A few times a week | 67 |
+| Only sometimes | 33 |
+| Rarely | 0 |
+
+**C6 · Persistent worry** — Is anyone in the family sad, worried or unable to sleep because of worries most of the time?
+
+| Answer | Points |
+|---|---|
+| No one | 100 |
+| Someone, sometimes | 50 |
+| Yes, someone often feels this way | 0 |
+| Prefer not to answer | 50 |
+
+**C7 · Knows where to get help** — If someone in the family felt very low, would you know where to get help?
+
+| Answer | Points |
+|---|---|
+| Yes | 100 |
+| Not sure | 50 |
+| No | 0 |
+
+**C8 · Life satisfaction** — Overall, how satisfied is the family with life?
 
 | Answer | Points |
 |---|---|
@@ -295,7 +322,7 @@ Every rule that used a calculation now uses a fixed table:
 | Satisfied | 75 |
 | Very satisfied | 100 |
 
-**C6 · Winter isolation** — I feel isolated or cut off during the winter months.
+**C9 · Winter isolation** — Our family feels isolated or cut off during the winter months.
 
 | Answer | Points |
 |---|---|
@@ -309,15 +336,15 @@ Every rule that used a calculation now uses a fixed table:
 
 *Trust, participation, inclusion and institutions.* 7 questions.
 
-**D1 · Community participation** — Participation in community activities (festivals, meetings, collective labour)
+**D1 · Community participation** — How often does the family take part in community activities — festivals, village meetings, shared work?
 
 | Answer | Points |
 |---|---|
-| Regular | 100 |
-| Occasional | 50 |
-| None | 0 |
+| Regularly | 100 |
+| Sometimes | 50 |
+| Never | 0 |
 
-**D2 · Trust** — I trust the people in my village.
+**D2 · Trust** — Our family trusts the people in our village.
 
 | Answer | Points |
 |---|---|
@@ -327,23 +354,23 @@ Every rule that used a calculation now uses a fixed table:
 | Agree | 75 |
 | Strongly agree | 100 |
 
-**D3 · Conflict level** — Level of conflict or tension in the village
+**D3 · Conflict level** — How much tension or conflict is there in the village?
 
 | Answer | Points |
 |---|---|
-| High trust, low conflict | 100 |
-| Moderate | 50 |
-| Frequent conflict | 0 |
+| Very little — people get along | 100 |
+| Some | 50 |
+| A lot of conflict | 0 |
 
-**D4 · Inclusion** — Do women and marginalised groups take part equally in decisions?
+**D4 · Inclusion** — Do women and less-heard groups have an equal say in village decisions?
 
 | Answer | Points |
 |---|---|
-| Equally | 100 |
+| Yes, an equal say | 100 |
 | Partly | 50 |
-| Excluded | 0 |
+| No, they are left out | 0 |
 
-**D5 · Between generations** — Elders are respected and youth are engaged in village life.
+**D5 · Between generations** — In our village, elders are respected and young people take part in village life.
 
 | Answer | Points |
 |---|---|
@@ -353,15 +380,15 @@ Every rule that used a calculation now uses a fixed table:
 | Agree | 75 |
 | Strongly agree | 100 |
 
-**D6 · Village institutions** — Which village institutions can you turn to?
+**D6 · Village institutions** — Which village groups can the family turn to for help?
 
 | Answer | Points |
 |---|---|
-| 0 institutions ticked | 0 |
-| 1 institutions ticked | 50 |
-| 2 or more institutions ticked | 100 |
+| 0 groups ticked | 0 |
+| 1 groups ticked | 50 |
+| 2 or more groups ticked | 100 |
 
-**D7 · Emergency support** — My community would help my household in an emergency.
+**D7 · Emergency support** — Our village would help our family in an emergency.
 
 | Answer | Points |
 |---|---|
@@ -375,7 +402,7 @@ Every rule that used a calculation now uses a fixed table:
 
 *Water, food, waste, fuel and climate adaptation.* 6 questions.
 
-**B10 · Drinking water quality** — Drinking water quality
+**B10 · Drinking water quality** — Quality of the family’s drinking water
 
 | Answer | Points |
 |---|---|
@@ -434,9 +461,9 @@ Every rule that used a calculation now uses a fixed table:
 
 ### Intellectual
 
-*Education, learning, digital and civic awareness.* 6 questions.
+*Education, learning, digital and civic awareness.* 7 questions.
 
-**A13 · Education attained** — Highest education in the household
+**A12 · Education attained** — Highest education in the household
 
 | Answer | Points |
 |---|---|
@@ -493,30 +520,31 @@ Every rule that used a calculation now uses a fixed table:
 | 2 barriers ticked (fewer is better) | 33 |
 | 3 or more barriers ticked (fewer is better) | 0 |
 
+**G6 · Literacy** — How many family members can read and write?
+
+| Answer | Points |
+|---|---|
+| Everyone | 100 |
+| Most of them | 75 |
+| About half | 50 |
+| Only one or a few | 25 |
+| No one | 0 |
+
 ### Spiritual
 
-*Practice, purpose, peace, worship and culture.* 7 questions.
+*Practice, purpose, peace, worship and culture.* 6 questions.
 
-**H1 · Spiritual practice** — How regularly do you pray, meditate or do religious practice?
-
-| Answer | Points |
-|---|---|
-| Daily | 100 |
-| Weekly | 67 |
-| Occasionally | 33 |
-| Never | 0 |
-
-**H2 · Sense of purpose** — I have a clear sense of purpose and direction.
+**H1 · Spiritual practice** — How much are prayer, meditation or religious practice part of the family’s life?
 
 | Answer | Points |
 |---|---|
-| Strongly disagree | 0 |
-| Disagree | 25 |
-| Neutral | 50 |
-| Agree | 75 |
-| Strongly agree | 100 |
+| Not at all | 0 |
+| A little | 25 |
+| Somewhat | 50 |
+| Quite a lot | 75 |
+| Very much | 100 |
 
-**H3 · Ethical living** — My decisions are guided by ethical or spiritual values.
+**H2 · Ethical living** — My decisions are guided by ethical or spiritual values.
 
 | Answer | Points |
 |---|---|
@@ -526,7 +554,7 @@ Every rule that used a calculation now uses a fixed table:
 | Agree | 75 |
 | Strongly agree | 100 |
 
-**H4 · Inner peace** — I generally feel inner peace and contentment.
+**H3 · Inner peace** — I generally feel inner peace and contentment.
 
 | Answer | Points |
 |---|---|
@@ -536,7 +564,7 @@ Every rule that used a calculation now uses a fixed table:
 | Agree | 75 |
 | Strongly agree | 100 |
 
-**H5 · Access to worship** — Can you reach a monastery, mosque or place of worship when you wish?
+**H4 · Access to worship** — Can you reach a monastery, mosque or place of worship when you wish?
 
 | Answer | Points |
 |---|---|
@@ -545,7 +573,7 @@ Every rule that used a calculation now uses a fixed table:
 | Beyond 10 km | 33 |
 | Only in some seasons | 0 |
 
-**H6 · Festivals** — Festival / cultural participation
+**H5 · Festivals** — Festival / cultural participation
 
 | Answer | Points |
 |---|---|
@@ -553,7 +581,7 @@ Every rule that used a calculation now uses a fixed table:
 | Occasional | 50 |
 | Never | 0 |
 
-**H7 · Cultural continuity** — Are younger people losing interest in Ladakhi language, festivals and practices?
+**H6 · Cultural continuity** — Are younger people losing interest in Ladakhi language, festivals and practices?
 
 | Answer | Points |
 |---|---|
@@ -590,7 +618,6 @@ Every rule that used a calculation now uses a fixed table:
 | Feels cut off in winter | Emotional | Connectivity and winter activities both matter. |
 | No functioning village institution | Social | Nothing to build community action on — usually the first thing to rebuild. |
 | Women or marginalised groups excluded | Social | Check who actually attends meetings, not only who is invited. |
-| Young people left for work or study | Social | Not automatically bad — ask whether it reads as opportunity or loss. |
 | Cannot use a phone or internet for information | Intellectual | Limits every digital service, including this one reaching them. |
 | Two or more barriers to education | Intellectual | Distance, cost, winter closure and teacher absence need different responses. |
 | Unaware of climate change impact | Intellectual | Matters here because adaptation depends on it. |

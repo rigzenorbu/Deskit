@@ -18,7 +18,7 @@ const MAX_PER_WINDOW = 3;
 const WINDOW_MINUTES = 15;
 const TICKET_MINUTES = 30;
 
-export type Purpose = 'signin' | 'reset';
+export type Purpose = 'signin' | 'reset' | 'register';
 
 const fail = (statusCode: number, message: string) => Object.assign(new Error(message), { statusCode });
 
