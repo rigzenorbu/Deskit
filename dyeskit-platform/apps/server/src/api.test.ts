@@ -533,6 +533,14 @@ test('the assistant answers staff from totals, picks the right tool, and refuses
   for (const q of ['Which villages need the most help?', 'What problems affect the most households?']) {
     assert.doesNotMatch(JSON.stringify((await ask(q)).body), /[A-Z]_[A-Z]{3}_\d{3}/);
   }
+  // any question in the survey, answered from every household's answers
+  const loans = (await ask('How many families have a loan?')).body;
+  assert.match(loans.answer, /^F4 Does the family have a loan/);
+  assert.match(loans.answer, /\d+ of \d+ households answered/);
+  assert.match((await ask('Literacy by district')).body.evidence.at(-1).title, /G6 by district/);
+  assert.match((await ask('Tell me about the financial dimension')).body.answer, /^Financial in all your villages/);
+  assert.match((await ask('Tell me about Stok')).body.evidence[0].title, /Stok compared/);
+  assert.match((await ask('How many people live in the surveyed households?')).body.answer, /households surveyed with \d+ people/);
   assert.equal((await ask('How are we doing?', 'sonam')).status, 403);
   assert.equal((await call('POST', '/api/assistant', 'supervisor', { question: '  ' })).status, 400);
 });

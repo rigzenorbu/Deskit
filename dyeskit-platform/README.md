@@ -62,7 +62,10 @@ dyeskit-platform/
 - **Insights** in plain words: priority actions, villages that can learn from each other,
   bright spots — every one a count you can check.
 - **Ask the data** (Insights → Ask the data, staff only): type a question such as "Which villages
-  in Kargil need help?" and get a short answer with the table it came from. It sees only the
+  in Kargil need help?" and get a short answer with the table it came from. It can answer about
+  any question in the survey ("How many families have a loan?", "Literacy by district"), count
+  households with a mix of answers ("loan and no savings"), explain one dimension question by
+  question, profile a village or district, and describe who lives in the households. It sees only the
   villages the person may see, and only totals — never a household. Without a key it answers from
   keyword rules; with `ANTHROPIC_API_KEY` set on the server, Claude reads the question and uses the
   same tools (see docs/DEPLOYMENT.md). If a request is declined, the API retries it on Anthropic's
