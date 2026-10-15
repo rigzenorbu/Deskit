@@ -15,8 +15,9 @@ admins and analysts can use it from a computer at the same address.
 | `SEED_DEMO` | `false` in production (no demo accounts or demo surveys) |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | the first admin account, created on first start when the database has no users |
 | `PORT` | set by most hosts automatically |
-| `SMS_PROVIDER` | `twilio` to send sign-in codes by text message. Unset: phone sign-in is off in production (in development the code is shown on screen instead) |
+| `SMS_PROVIDER` | `twilio` or `fast2sms` to send sign-in codes by text message. Unset: phone sign-in is off in production (in development the code is shown on screen instead) |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` (or `TWILIO_MESSAGING_SERVICE_SID`) | Twilio account details, when `SMS_PROVIDER=twilio` |
+| `FAST2SMS_API_KEY`, `FAST2SMS_ROUTE` (`quick`, `dlt` or `otp`), `FAST2SMS_SENDER_ID`, `FAST2SMS_TEMPLATE_ID` | Fast2SMS details, when `SMS_PROVIDER=fast2sms` (Indian numbers only). `quick` sends our own text without DLT (about ₹7 per SMS) and needs only the key; `dlt` sends your DLT-approved template, whose one variable is the code |
 | `OTP_SECRET` | any long random text; keeps sign-in codes valid across a restart |
 | `ANTHROPIC_API_KEY` | optional: switches on AI answers in **Ask the data** (Claude, from console.anthropic.com; billed per question). Unset: the assistant gives quick rule-based answers, at no cost |
 | `ASSISTANT_MODEL` | optional: the Claude model for Ask the data (default `claude-opus-5-5`) |

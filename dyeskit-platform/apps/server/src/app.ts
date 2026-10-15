@@ -148,7 +148,7 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
       const generic = { ok: true, message: 'If an account matches, a code has been sent to the phone number on it.' };
       if (!u?.phone) return generic;
       const code = await createCode(db, u.phone, 'reset');
-      await sendSms(u.phone, `Your DYESKIT code to reset your password is ${code}. It expires in ${CODE_MINUTES} minutes.`);
+      await sendSms(u.phone, `Your DYESKIT code to reset your password is ${code}. It expires in ${CODE_MINUTES} minutes.`, code);
       return { ...generic, sentTo: maskPhone(u.phone), ...(revealCodes() ? { devCode: code } : {}) };
     }
     const phone = normalizePhone(b.phone);
@@ -156,11 +156,11 @@ export async function buildApp(db: Db, opts: { logger?: boolean; rateLimits?: bo
     if (b.purpose === 'register') {
       if (await phoneTaken(phone)) return reply.code(409).send({ error: 'That phone number is already registered. Please sign in.' });
       const code = await createCode(db, phone, 'register');
-      await sendSms(phone, `Your DYESKIT code to confirm your phone number is ${code}. It expires in ${CODE_MINUTES} minutes. Do not share it.`);
+      await sendSms(phone, `Your DYESKIT code to confirm your phone number is ${code}. It expires in ${CODE_MINUTES} minutes. Do not share it.`, code);
       return { ok: true, sentTo: maskPhone(phone), ...(revealCodes() ? { devCode: code } : {}) };
     }
     const code = await createCode(db, phone, 'signin');
-    await sendSms(phone, `Your DYESKIT sign-in code is ${code}. It expires in ${CODE_MINUTES} minutes. Do not share it.`);
+    await sendSms(phone, `Your DYESKIT sign-in code is ${code}. It expires in ${CODE_MINUTES} minutes. Do not share it.`, code);
     return { ok: true, sentTo: maskPhone(phone), ...(revealCodes() ? { devCode: code } : {}) };
   });
 
