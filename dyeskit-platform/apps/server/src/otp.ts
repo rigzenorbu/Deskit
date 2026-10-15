@@ -39,7 +39,8 @@ export async function checkCode(q: Queryable, phone: string, purpose: Purpose, c
     `SELECT id, code_hash, attempts, used_at, expires_at <= now() AS expired FROM otp_codes WHERE phone=$1 AND purpose=$2
      ORDER BY created_at DESC, id DESC LIMIT 1`, [phone, purpose]);
   const row = rows[0];
-  if (!row || row.expired) throw fail(400, 'This code has expired. Please ask for a new one.');
+  if (!row) throw fail(400, 'Please ask for a code first.');
+  if (row.expired) throw fail(400, 'This code has expired. Please ask for a new one.');
   if (row.used_at) throw fail(400, 'This code has already been used. Please ask for a new one.');
   if (row.attempts >= MAX_TRIES) throw fail(429, 'Too many wrong codes. Please ask for a new one.');
   const given = hash(phone, purpose, String(code ?? '').replace(/\D/g, ''));

@@ -43,10 +43,14 @@ export default function Register() {
   const next = async () => {
     setError(null);
     if (!f.name.trim() || !f.email.trim() || !f.password) return setError('Name, email and password are required.');
-    if (verify && !f.phone.trim()) return setError('Please enter your mobile number. We text a code to confirm it.');
+    // ask again: texting codes may have been switched on or off since this screen opened
+    const h = await api<{ phoneSignIn?: boolean }>('/api/health').catch(() => null);
+    const codes = h ? !!h.phoneSignIn : verify;
+    setVerify(codes);
+    if (codes && !f.phone.trim()) return setError('Please enter your mobile number. We text a code to confirm it.');
     if (f.password !== f.confirm) return setError('The two passwords do not match.');
     if (!accepted) return setError('Please read and accept the privacy policy.');
-    if (!verify) return create('');
+    if (!codes) return create('', false);
     setBusy(true);
     try {
       setSent(await api('/api/auth/otp/send', { method: 'POST', body: { phone: f.phone, purpose: 'register' } }));
@@ -54,9 +58,9 @@ export default function Register() {
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
 
-  const create = async (c6: string) => {
+  const create = async (c6: string, needCode = verify) => {
     setError(null);
-    if (verify && c6.length !== 6) return setError('Enter the 6-digit code.');
+    if (needCode && c6.length !== 6) return setError('Enter the 6-digit code.');
     setBusy(true);
     try {
       const r = await api<{ active: boolean }>('/api/auth/register', { method: 'POST', body: { name: f.name, email: f.email, phone: f.phone, code: c6, password: f.password, kind, acceptPrivacy: true } });
