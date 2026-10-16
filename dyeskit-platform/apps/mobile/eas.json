@@ -17,13 +17,13 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://dyeskit.onrender.com"
+        "EXPO_PUBLIC_API_URL": "https://dyeskit-live.onrender.com"
       }
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://dyeskit.onrender.com"
+        "EXPO_PUBLIC_API_URL": "https://dyeskit-live.onrender.com"
       }
     },
     "phone-test": {
